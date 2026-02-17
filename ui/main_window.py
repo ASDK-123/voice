@@ -26,6 +26,43 @@ from .voice_settings import VoiceSettingsInterface
 from .settings import SettingsInterface
 from .api_page import APIPageInterface
 
+
+class V2HealthProbeThread(QThread):
+    """后台探测 v2 API 健康状态，避免主线程阻塞。"""
+
+    done = pyqtSignal(object)
+
+    def __init__(self, host: str, port: int, api_key: str = "", timeout_s: float = 0.5):
+        super().__init__()
+        self.host = str(host or "127.0.0.1").strip() or "127.0.0.1"
+        self.port = int(port or 9880)
+        self.api_key = str(api_key or "").strip()
+        self.timeout_s = float(timeout_s)
+
+    def run(self):
+        base_url = f"http://{self.host}:{self.port}"
+        headers = {"X-API-Key": self.api_key} if self.api_key else {}
+        result = {
+            "ok": False,
+            "base_url": base_url,
+            "api_key": self.api_key,
+            "error": "",
+            "model_loaded": False,
+        }
+        try:
+            resp = requests.get(f"{base_url}/api/v2/health", headers=headers, timeout=self.timeout_s)
+            if int(resp.status_code) < 400:
+                payload = resp.json() or {}
+                loaded = bool(payload.get("model_loaded", False))
+                result["model_loaded"] = loaded
+                result["ok"] = loaded
+            else:
+                result["error"] = f"HTTP {resp.status_code}"
+        except Exception as e:
+            result["error"] = str(e)
+        self.done.emit(result)
+
+
 class CosyVoiceProApp(FluentWindow):
     """主应用程序窗口"""
     
@@ -36,6 +73,7 @@ class CosyVoiceProApp(FluentWindow):
         self.current_worker = None
         self.model_loader_thread = None
         self.model_unloader_thread = None
+        self.generation_probe_thread = None
         
         # Qt5 Audio Setup
         self.media_player = QMediaPlayer()
@@ -494,57 +532,75 @@ class CosyVoiceProApp(FluentWindow):
                 parent=self
             )
             return
-        
+        if self.generation_probe_thread and self.generation_probe_thread.isRunning():
+            InfoBar.warning(
+                title="正在检查",
+                content="正在检查 v2 API 状态，请稍候",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2000,
+                parent=self,
+            )
+            return
+
         # Create worker thread: prefer v2 API for cache/jobs/emotion voices when available.
         use_v2 = bool(self.config_manager.get("ui_use_v2_generation", True))
-        worker = None
-        if use_v2:
-            try:
-                host = str(self.config_manager.get("api_host", "127.0.0.1") or "127.0.0.1").strip()
-                port = int(self.config_manager.get("api_port", 9880) or 9880)
-                api_key = str(self.config_manager.get("api_key", "") or "").strip()
-                base_url = f"http://{host}:{port}"
-                headers = {"X-API-Key": api_key} if api_key else {}
-                r = requests.get(f"{base_url}/api/v2/health", headers=headers, timeout=0.5)
-                ok = False
-                if r.status_code < 400:
-                    j = r.json() or {}
-                    ok = bool(j.get("model_loaded", False))
-                if ok:
-                    worker = V2AudioGenerationWorker(
-                        segments,
-                        self.task_interface.output_dir,
-                        self.task_interface.project_name,
-                        base_url=base_url,
-                        api_key=api_key,
-                        timeout_s=60.0,
-                    )
-                else:
-                    self.task_interface.add_log("[INFO] v2 API 不可用或模型未加载，回退到本地推理。")
-            except Exception:
-                self.task_interface.add_log("[INFO] v2 API 不可用，回退到本地推理。")
-
-        if worker is None:
+        if not use_v2:
             worker = AudioGenerationWorker(
                 segments,
                 self.task_interface.output_dir,
                 self.task_interface.project_name,
                 self.cosyvoice_model,
             )
+            self._start_generation_worker(worker)
+            return
 
-        self.current_worker = worker
-        
-        # 连接信号
-        self.current_worker.progress.connect(self.task_interface.add_log)
-        self.current_worker.segment_finished.connect(self.task_interface.update_segment_audio)
-        self.current_worker.finished.connect(self.on_generation_finished)
-        self.current_worker.error.connect(self.on_generation_error)
-        
-        # 进入运行态，避免重复触发
-        self._set_generation_ui_running(True)
-        
-        # 启动线程
-        self.current_worker.start()
+        host = str(self.config_manager.get("api_host", "127.0.0.1") or "127.0.0.1").strip()
+        port = int(self.config_manager.get("api_port", 9880) or 9880)
+        api_key = str(self.config_manager.get("api_key", "") or "").strip()
+        probe = V2HealthProbeThread(host, port, api_key, timeout_s=0.5)
+        self.generation_probe_thread = probe
+
+        def _on_probe_done(res: object):
+            self.generation_probe_thread = None
+            try:
+                probe.deleteLater()
+            except Exception:
+                pass
+
+            result = res if isinstance(res, dict) else {}
+            base_url = str(result.get("base_url") or f"http://{host}:{port}")
+            api_key_local = str(result.get("api_key") or api_key)
+            ok = bool(result.get("ok", False))
+            err = str(result.get("error") or "").strip()
+
+            if ok:
+                worker2 = V2AudioGenerationWorker(
+                    segments,
+                    self.task_interface.output_dir,
+                    self.task_interface.project_name,
+                    base_url=base_url,
+                    api_key=api_key_local,
+                    timeout_s=60.0,
+                )
+                self._start_generation_worker(worker2)
+                return
+
+            if err:
+                self.task_interface.add_log("[INFO] v2 API 不可用，回退到本地推理。")
+            else:
+                self.task_interface.add_log("[INFO] v2 API 不可用或模型未加载，回退到本地推理。")
+            worker2 = AudioGenerationWorker(
+                segments,
+                self.task_interface.output_dir,
+                self.task_interface.project_name,
+                self.cosyvoice_model,
+            )
+            self._start_generation_worker(worker2)
+
+        probe.done.connect(_on_probe_done)
+        probe.start()
 
     def get_active_cosyvoice_model(self):
         """返回当前可用的 CosyVoice 模型实例（兼容不同 worker 类型）。"""
@@ -554,6 +610,21 @@ class CosyVoiceProApp(FluentWindow):
         if worker is None:
             return None
         return getattr(worker, "cosyvoice", None)
+
+    def _start_generation_worker(self, worker: QThread):
+        self.current_worker = worker
+
+        # 连接信号
+        self.current_worker.progress.connect(self.task_interface.add_log)
+        self.current_worker.segment_finished.connect(self.task_interface.update_segment_audio)
+        self.current_worker.finished.connect(self.on_generation_finished)
+        self.current_worker.error.connect(self.on_generation_error)
+
+        # 进入运行态，避免重复触发
+        self._set_generation_ui_running(True)
+
+        # 启动线程
+        self.current_worker.start()
 
     def _set_generation_ui_running(self, running: bool):
         """同步主流程生成相关控件的运行态。"""
@@ -790,6 +861,8 @@ class CosyVoiceProApp(FluentWindow):
         self.model_loader_thread = None
         self._stop_qthread(self.model_unloader_thread)
         self.model_unloader_thread = None
+        self._stop_qthread(self.generation_probe_thread)
+        self.generation_probe_thread = None
 
         # Stop voice-settings background workers if active.
         try:

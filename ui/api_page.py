@@ -175,18 +175,78 @@ class APIServerThread(QThread):
         if self.server:
             self.server.shutdown()
 
+
+class BridgeServiceWorker(QThread):
+    """桥接服务启停后台 worker，避免主线程阻塞。"""
+
+    done = pyqtSignal(str, bool, object, str)  # action, ok, process, message
+
+    def __init__(self, action: str, *, process=None, bridge_path: str = "", python_path: str = ""):
+        super().__init__()
+        self.action = str(action or "").strip().lower()
+        self.process = process
+        self.bridge_path = str(bridge_path or "").strip()
+        self.python_path = str(python_path or "").strip()
+
+    def run(self):
+        try:
+            if self.action == "start":
+                if (not self.bridge_path) or (not os.path.exists(self.bridge_path)):
+                    self.done.emit("start", False, None, "找不到 bridge.py 文件")
+                    return
+                py = self.python_path or sys.executable
+                proc = subprocess.Popen(
+                    [py, self.bridge_path],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    cwd=os.path.dirname(self.bridge_path),
+                )
+                import time
+                time.sleep(1.0)
+                if proc.poll() is not None:
+                    self.done.emit("start", False, None, f"桥接服务启动失败（exit={proc.returncode}）")
+                    return
+                self.done.emit("start", True, proc, "")
+                return
+
+            if self.action == "stop":
+                proc = self.process
+                if not proc:
+                    self.done.emit("stop", True, None, "")
+                    return
+                try:
+                    if proc.poll() is None:
+                        proc.terminate()
+                        try:
+                            proc.wait(timeout=5)
+                        except subprocess.TimeoutExpired:
+                            proc.kill()
+                            proc.wait(timeout=2)
+                    self.done.emit("stop", True, None, "")
+                except Exception as e:
+                    self.done.emit("stop", False, None, str(e))
+                return
+
+            self.done.emit(self.action, False, None, f"不支持的桥接操作: {self.action}")
+        except Exception as e:
+            self.done.emit(self.action, False, None, str(e))
+
+
 class APIPageInterface(QWidget):
     """API 服务管理界面"""
     
     log_received = pyqtSignal(str)
     stream_toggle_done = pyqtSignal(bool, bool, str)  # ok, enabled, message
     spk_cache_toggle_done = pyqtSignal(bool, bool, str)  # ok, enabled, message
+    bridge_start_done = pyqtSignal(bool, object, str)  # ok, process, message
+    bridge_stop_done = pyqtSignal(bool, str)  # ok, message
     
     def __init__(self, main_window, parent=None):
         super().__init__(parent)
         self.main_window = main_window
         self.server_thread = None
         self.bridge_process = None  # 桥接服务进程
+        self._bridge_workers = []
         self.init_ui()
         self.connect_signals()
         
@@ -347,6 +407,8 @@ class APIPageInterface(QWidget):
         self.log_received.connect(self.append_log)
         self.stream_toggle_done.connect(self._on_stream_toggle_done)
         self.spk_cache_toggle_done.connect(self._on_spk_cache_toggle_done)
+        self.bridge_start_done.connect(self._on_bridge_start_done)
+        self.bridge_stop_done.connect(self._on_bridge_stop_done)
 
     def clear_logs(self):
         self.log_entries = []
@@ -534,6 +596,8 @@ class APIPageInterface(QWidget):
             ui_api_key = ""
         if ui_api_key:
             os.environ["V2_API_KEY"] = ui_api_key
+        else:
+            os.environ.pop("V2_API_KEY", None)
 
         # Embedded server should use a real CharacterConfig so v2 /voices CRUD works.
         # IMPORTANT: keep this file separate from legacy UI voice_config_path to avoid
@@ -849,7 +913,9 @@ class APIPageInterface(QWidget):
             self.start_bridge_service()
     
     def start_bridge_service(self):
-        """启动桥接服务"""
+        """异步启动桥接服务。"""
+        if any(w.isRunning() for w in self._bridge_workers):
+            return
         self.bridge_btn.setEnabled(False)
         self.bridge_btn.setText("正在启动桥接服务...")
         try:
@@ -866,14 +932,12 @@ class APIPageInterface(QWidget):
                     duration=3000,
                     parent=self
                 )
-                self.bridge_btn.setEnabled(True)
-                self.bridge_btn.setText("启动桥接服务")
-                self.bridge_btn.setIcon(FluentIcon.LINK)
+                self._restore_bridge_button_state()
                 return
-            
-            # 使用系统 Python 启动 bridge.py（后台运行）
+             
+            # 使用系统 Python 启动 bridge.py（后台运行，异步）
             self.log_received.emit("[INFO] 正在启动 OpenAI 桥接服务...")
-            
+             
             # Prefer configured python; fall back to current interpreter.
             try:
                 python_path = (self.main_window.config_manager.get("bridge_python", "") or "").strip()
@@ -881,60 +945,12 @@ class APIPageInterface(QWidget):
                 python_path = ""
             if not python_path:
                 python_path = sys.executable
-            self.bridge_process = subprocess.Popen(
-                [python_path, bridge_path],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                cwd=os.path.dirname(bridge_path)
-            )
-            
-            # 等待一小会儿检查是否启动成功
-            import time
-            time.sleep(1.0)
-            
-            if self.bridge_process.poll() is not None:
-                # 进程已经退出，说明启动失败
-                stderr = self.bridge_process.stderr.read().decode('utf-8', errors='ignore')
-                self.log_received.emit(f"[ERROR] 桥接服务启动失败: {stderr}")
-                self.bridge_process = None
-                InfoBar.error(
-                    title='启动失败',
-                    content=f'桥接服务启动失败，请查看日志',
-                    orient=Qt.Horizontal,
-                    isClosable=True,
-                    position=InfoBarPosition.TOP,
-                    duration=3000,
-                    parent=self
-                )
-                self.bridge_btn.setEnabled(True)
-                self.bridge_btn.setText("启动桥接服务")
-                self.bridge_btn.setIcon(FluentIcon.LINK)
-                return
-
-            
-            # 更新 UI
-            self.bridge_btn.setText("停止桥接服务")
-            self.bridge_btn.setIcon(FluentIcon.PAUSE)
-            self.bridge_btn.setEnabled(True)
-            self.update_status_label()
-            
-            self.log_received.emit("[OK] OpenAI 桥接服务已启动 (端口 5000)")
-            
-            InfoBar.success(
-                title='桥接服务已启动',
-                content='OpenAI 桥接服务运行于端口 5000',
-                orient=Qt.Horizontal,
-                isClosable=True,
-                position=InfoBarPosition.TOP,
-                duration=2000,
-                parent=self
-            )
-            
+            worker = BridgeServiceWorker("start", bridge_path=bridge_path, python_path=python_path)
+            worker.done.connect(self._dispatch_bridge_done)
+            self._start_bridge_worker(worker)
         except Exception as e:
             self.log_received.emit(f"[ERROR] 启动桥接服务失败: {str(e)}")
-            self.bridge_btn.setEnabled(True)
-            self.bridge_btn.setText("启动桥接服务")
-            self.bridge_btn.setIcon(FluentIcon.LINK)
+            self._restore_bridge_button_state()
             InfoBar.error(
                 title='启动失败',
                 content=self._with_advice(f'启动桥接服务失败: {str(e)}', "检查 bridge.py 与 Python 路径配置。"),
@@ -946,37 +962,125 @@ class APIPageInterface(QWidget):
             )
     
     def stop_bridge_service(self):
-        """停止桥接服务"""
+        """异步停止桥接服务。"""
+        if any(w.isRunning() for w in self._bridge_workers):
+            return
         self.bridge_btn.setEnabled(False)
         self.bridge_btn.setText("正在停止桥接服务...")
         try:
-            if self.bridge_process:
+            if self.bridge_process and self.bridge_process.poll() is None:
                 self.log_received.emit("[INFO] 正在停止桥接服务...")
-                self.bridge_process.terminate()
-                self.bridge_process.wait(timeout=5)
-                self.bridge_process = None
-                
-                # 更新 UI
-                self.bridge_btn.setText("启动桥接服务")
-                self.bridge_btn.setIcon(FluentIcon.LINK)
-                self.update_status_label()
-                
-                self.log_received.emit("[OK] 桥接服务已停止")
-                
+            worker = BridgeServiceWorker("stop", process=self.bridge_process)
+            worker.done.connect(self._dispatch_bridge_done)
+            self._start_bridge_worker(worker)
         except Exception as e:
             self.log_received.emit(f"[ERROR] 停止桥接服务失败: {str(e)}")
-        finally:
-            self.bridge_btn.setEnabled(True)
-            is_running = bool(self.bridge_process and self.bridge_process.poll() is None)
-            if is_running:
-                self.bridge_btn.setText("停止桥接服务")
-                self.bridge_btn.setIcon(FluentIcon.PAUSE)
-            else:
-                self.bridge_btn.setText("启动桥接服务")
-                self.bridge_btn.setIcon(FluentIcon.LINK)
+            self._restore_bridge_button_state()
+
+    def _dispatch_bridge_done(self, action: str, ok: bool, process: object, message: str):
+        act = str(action or "").strip().lower()
+        if act == "start":
+            self.bridge_start_done.emit(bool(ok), process, str(message or ""))
+            return
+        if act == "stop":
+            self.bridge_stop_done.emit(bool(ok), str(message or ""))
+            return
+        self.log_received.emit(f"[WARN] 未知桥接回调: action={act}")
+        self._restore_bridge_button_state()
+
+    def _start_bridge_worker(self, worker: QThread):
+        self._bridge_workers.append(worker)
+
+        def _cleanup():
+            try:
+                self._bridge_workers.remove(worker)
+            except Exception:
+                pass
+            worker.deleteLater()
+
+        worker.finished.connect(_cleanup)
+        worker.start()
+
+    def _restore_bridge_button_state(self):
+        self.bridge_btn.setEnabled(True)
+        is_running = bool(self.bridge_process and self.bridge_process.poll() is None)
+        if is_running:
+            self.bridge_btn.setText("停止桥接服务")
+            self.bridge_btn.setIcon(FluentIcon.PAUSE)
+        else:
+            self.bridge_btn.setText("启动桥接服务")
+            self.bridge_btn.setIcon(FluentIcon.LINK)
+        self.update_status_label()
+
+    def _on_bridge_start_done(self, ok: bool, process: object, message: str):
+        if ok and process is not None:
+            self.bridge_process = process
+            self.log_received.emit("[OK] OpenAI 桥接服务已启动 (端口 5000)")
+            InfoBar.success(
+                title='桥接服务已启动',
+                content='OpenAI 桥接服务运行于端口 5000',
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2000,
+                parent=self
+            )
+        else:
+            self.bridge_process = None
+            msg = self._with_advice(message or "桥接服务启动失败，请查看日志", "检查 bridge.py 与 Python 路径配置。")
+            self.log_received.emit(f"[ERROR] {msg}")
+            InfoBar.error(
+                title='启动失败',
+                content=msg,
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+        self._restore_bridge_button_state()
+
+    def _on_bridge_stop_done(self, ok: bool, message: str):
+        if ok:
+            self.bridge_process = None
+            self.log_received.emit("[OK] 桥接服务已停止")
+        else:
+            self.log_received.emit(f"[ERROR] 停止桥接服务失败: {message}")
+            InfoBar.error(
+                title='停止失败',
+                content=self._with_advice(str(message or "停止桥接服务失败"), "检查桥接进程状态后重试。"),
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+        self._restore_bridge_button_state()
 
     def shutdown(self, wait_ms: int = 8000):
         """窗口关闭前的线程/进程收尾，避免 QThread 在运行中被析构。"""
+        # Stop bridge action workers first.
+        try:
+            for w in list(self._bridge_workers):
+                try:
+                    if w.isRunning() and not w.wait(wait_ms):
+                        self.log_received.emit("[WARN] 桥接操作线程停止超时，强制终止")
+                        w.terminate()
+                        w.wait(1000)
+                except Exception:
+                    pass
+                try:
+                    if w in self._bridge_workers:
+                        self._bridge_workers.remove(w)
+                except Exception:
+                    pass
+                try:
+                    w.deleteLater()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
         # Stop embedded API server thread.
         try:
             if self.server_thread:
