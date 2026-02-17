@@ -29,8 +29,14 @@ from .voice_setup_wizard import VoiceSetupWizardDialog
 from .v2_client import V2Client, V2Config
 from .components.voice_refs_sheet import VoiceRefsSheet
 from .components.voice_rename_wizard import VoiceRenameWizard
+from .components.voice_settings_ui_helpers import (
+    build_main_ref_cell_widget,
+    build_strip_container,
+    make_secondary_label,
+    status_chip_styles,
+)
 from .services import VoiceStore
-from .theme.tokens import Metrics, Palette, Radius, Spacing, StatusChip, Table
+from .theme.tokens import Metrics, Palette, Radius, Spacing, Table
 
 class LegacyImportWorker(QThread):
     """导入旧 voices 配置到 v2 voices + v2 assets（后台线程）"""
@@ -444,18 +450,10 @@ class VoiceSettingsInterface(QWidget):
                 pass
 
     def _build_strip_container(self, object_name: str, margins: Tuple[int, int, int, int], spacing: int) -> Tuple[QWidget, QHBoxLayout]:
-        widget = QWidget(self)
-        widget.setObjectName(object_name)
-        layout = QHBoxLayout(widget)
-        layout.setContentsMargins(*margins)
-        layout.setSpacing(int(spacing))
-        return widget, layout
+        return build_strip_container(self, object_name, margins, spacing)
 
     def _make_secondary_label(self, text: str, *, word_wrap: bool = False) -> BodyLabel:
-        label = BodyLabel(text)
-        label.setStyleSheet(f"color: {Palette.TEXT_SECONDARY};")
-        label.setWordWrap(bool(word_wrap))
-        return label
+        return make_secondary_label(text, word_wrap=word_wrap)
 
     @staticmethod
     def _clamp(v: int, lo: int, hi: int) -> int:
@@ -634,13 +632,7 @@ class VoiceSettingsInterface(QWidget):
         return left_width < int(self._min_left_table_width)
 
     def _status_chip_styles(self, status: str) -> Tuple[str, str]:
-        if status == "uploaded":
-            return StatusChip.SUCCESS_BG, StatusChip.SUCCESS_TEXT
-        if status == "missing":
-            return StatusChip.MISSING_BG, StatusChip.MISSING_TEXT
-        if status == "warn":
-            return StatusChip.WARN_BG, StatusChip.WARN_TEXT
-        return StatusChip.NEUTRAL_BG, StatusChip.NEUTRAL_TEXT
+        return status_chip_styles(status)
 
     def _main_ref_view(self, source_idx: int) -> Dict[str, str]:
         row = self._v2_rows[source_idx] if 0 <= source_idx < len(self._v2_rows) and isinstance(self._v2_rows[source_idx], dict) else {}
@@ -735,47 +727,14 @@ class VoiceSettingsInterface(QWidget):
 
     def _render_main_ref_cell(self, source_idx: int) -> QWidget:
         info = self._main_ref_view(source_idx)
-        chip_bg, chip_fg = self._status_chip_styles(self._safe_str(info.get("status")))
-        display_name = self._safe_str(info.get("display_name"))
-        path = self._safe_str(info.get("path"))
-
-        w = QWidget()
-        layout = QHBoxLayout(w)
-        layout.setContentsMargins(4, 2, 4, 2)
-        layout.setSpacing(Table.COLUMN_GAP_DENSE)
-
-        chip = BodyLabel(self._safe_str(info.get("status_text")))
-        chip.setFixedHeight(StatusChip.HEIGHT)
-        chip.setStyleSheet(
-            f"background: {chip_bg}; color: {chip_fg}; border-radius: 6px; padding: 0 8px;"
+        return build_main_ref_cell_widget(
+            info=info,
+            source_idx=source_idx,
+            safe_str=self._safe_str,
+            on_open_folder=self._open_main_ref_folder,
+            on_open_menu=self._open_main_ref_context_menu,
+            setup_widget_context_menu=self.setup_widget_context_menu,
         )
-        layout.addWidget(chip)
-
-        name_lbl = BodyLabel(display_name or "<未绑定>")
-        name_lbl.setWordWrap(False)
-        name_lbl.setStyleSheet(f"color: {Palette.TEXT_SECONDARY};")
-        tt = path or (self._safe_str(info.get("aid")) if self._safe_str(info.get("aid")) else "<未绑定>")
-        name_lbl.setToolTip(tt)
-        layout.addWidget(name_lbl, 1)
-
-        folder_btn = ToolButton(FluentIcon.FOLDER)
-        folder_btn.setFixedSize(Metrics.CONTROL_H, Metrics.CONTROL_H)
-        folder_btn.setToolTip("打开参考音频目录")
-        folder_btn.setEnabled(bool(path and os.path.exists(path)))
-        folder_btn.clicked.connect(lambda _=False, idx=source_idx: self._open_main_ref_folder(idx))
-        layout.addWidget(folder_btn)
-
-        more_btn = ToolButton(FluentIcon.MORE)
-        more_btn.setFixedSize(Metrics.CONTROL_H, Metrics.CONTROL_H)
-        more_btn.setToolTip("更多")
-        more_btn.clicked.connect(
-            lambda _=False, idx=source_idx, b=more_btn: self._open_main_ref_context_menu(
-                idx, b.mapToGlobal(b.rect().bottomLeft())
-            )
-        )
-        layout.addWidget(more_btn)
-        self.setup_widget_context_menu(w, source_idx)
-        return w
 
     def _on_table_double_clicked(self, index):
         try:
