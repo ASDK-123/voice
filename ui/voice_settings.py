@@ -1626,7 +1626,7 @@ class VoiceSettingsInterface(QWidget):
             name_layout.addLayout(top_row)
 
             voice_id_label = BodyLabel(parts["voice_id"] or "<无效 voice_id>")
-            voice_id_label.setStyleSheet("color: #8E8E93; font-size: 10px;")
+            voice_id_label.setStyleSheet(f"color: {Palette.TEXT_MUTED}; font-size: 10px;")
             if not self.is_compact_mode:
                 name_layout.addWidget(voice_id_label)
             else:

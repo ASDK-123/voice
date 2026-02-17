@@ -5,6 +5,7 @@ import logging
 import requests
 import subprocess
 import os
+import html
 from datetime import datetime
 
 from PyQt5.QtWidgets import (
@@ -24,6 +25,7 @@ from werkzeug.serving import make_server
 from core import api
 
 from .v2_client import V2Client, V2Config, V2HttpError
+from .theme.tokens import Palette
 
 class APIDocDialog(MessageBoxBase):
     """API 文档对话框"""
@@ -187,151 +189,144 @@ class APIPageInterface(QWidget):
         self.connect_signals()
         
     def init_ui(self):
-        layout = QHBoxLayout(self)
+        self.log_entries = []
+
+        layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(20)
-        
-        # 左侧：控制面板
-        left_panel = CardWidget(self)
-        left_layout = QVBoxLayout(left_panel)
-        left_layout.setSpacing(15)
-        left_layout.setContentsMargins(20, 20, 20, 20)
-        
-        # 标题和文档按钮
-        title_layout = QHBoxLayout()
-        title = SubtitleLabel("API 服务（SillyTavern适配）")
-        title_layout.addWidget(title)
-        title_layout.addStretch()
-        
-        doc_btn = PushButton("?")
-        doc_btn.setMaximumWidth(35)
+        layout.setSpacing(16)
+
+        # 页面标题
+        page_header = QHBoxLayout()
+        title = SubtitleLabel("API 服务管理")
+        page_header.addWidget(title)
+        page_header.addStretch()
+        doc_btn = PushButton("API 文档")
+        doc_btn.setIcon(FluentIcon.HELP)
         doc_btn.clicked.connect(self.show_api_doc)
-        title_layout.addWidget(doc_btn)
-        
-        left_layout.addLayout(title_layout)
-        # 端口设置
-        port_layout = QHBoxLayout()
-        port_label = BodyLabel("端口:")
+        page_header.addWidget(doc_btn)
+        layout.addLayout(page_header)
+
+        # 1) 服务控制
+        service_card = CardWidget(self)
+        service_layout = QVBoxLayout(service_card)
+        service_layout.setContentsMargins(16, 16, 16, 16)
+        service_layout.setSpacing(10)
+        service_layout.addWidget(SubtitleLabel("服务控制"))
+
+        controls = QHBoxLayout()
+        controls.setSpacing(8)
+        controls.addWidget(BodyLabel("端口:"))
         self.port_spin = SpinBox(self)
         self.port_spin.setRange(1024, 65535)
         try:
             self.port_spin.setValue(int(self.main_window.config_manager.get("api_port", 9880)))
         except Exception:
             self.port_spin.setValue(9880)
-        port_layout.addWidget(port_label)
-        port_layout.addWidget(self.port_spin, 1)
-        left_layout.addLayout(port_layout)
+        controls.addWidget(self.port_spin)
+
+        self.start_btn = PrimaryPushButton("启动 API 服务")
+        self.start_btn.setIcon(FluentIcon.PLAY)
+        self.start_btn.clicked.connect(self.toggle_server)
+        controls.addWidget(self.start_btn)
+
+        self.bridge_btn = PushButton("启动桥接服务")
+        self.bridge_btn.setIcon(FluentIcon.LINK)
+        self.bridge_btn.clicked.connect(self.toggle_bridge)
+        controls.addWidget(self.bridge_btn)
+        controls.addStretch()
+        service_layout.addLayout(controls)
 
         self.voices_cfg_label = CaptionLabel("", self)
         self.voices_cfg_label.setWordWrap(True)
         self.voices_cfg_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        left_layout.addWidget(self.voices_cfg_label)
+        service_layout.addWidget(self.voices_cfg_label)
         self._refresh_voices_cfg_label()
-        
-        # 角色列表部分
-        list_header_layout = QHBoxLayout()
-        char_title = SubtitleLabel("角色列表")
-        list_header_layout.addWidget(char_title)
-        list_header_layout.addStretch()
-        
-        # 手动刷新按钮
+        layout.addWidget(service_card)
+
+        # 2) 运行开关 + 状态卡片
+        runtime_card = CardWidget(self)
+        runtime_layout = QVBoxLayout(runtime_card)
+        runtime_layout.setContentsMargins(16, 16, 16, 16)
+        runtime_layout.setSpacing(10)
+        runtime_layout.addWidget(SubtitleLabel("运行开关"))
+
+        self.stream_switch = SwitchButton("启用流式响应 (更快)")
+        self.stream_switch.checkedChanged.connect(self.on_stream_changed)
+        self.stream_switch.setEnabled(False)
+        runtime_layout.addWidget(self.stream_switch)
+
+        self.spk_cache_switch = SwitchButton("启用参考音色缓存 (加速)")
+        self.spk_cache_switch.checkedChanged.connect(self.on_spk_cache_changed)
+        self.spk_cache_switch.setEnabled(False)
+        runtime_layout.addWidget(self.spk_cache_switch)
+
+        status_row = QHBoxLayout()
+        status_row.setSpacing(10)
+        self.api_status_card, self.api_status_value, self.api_status_detail = self._create_status_card("API 服务")
+        self.bridge_status_card, self.bridge_status_value, self.bridge_status_detail = self._create_status_card("桥接服务")
+        status_row.addWidget(self.api_status_card, 1)
+        status_row.addWidget(self.bridge_status_card, 1)
+        runtime_layout.addLayout(status_row)
+
+        self.status_label = CaptionLabel("API: 已停止 | 桥接: 已停止")
+        self.status_label.setAlignment(Qt.AlignLeft)
+        runtime_layout.addWidget(self.status_label)
+        layout.addWidget(runtime_card)
+
+        # 3) voices 列表
+        voices_card = CardWidget(self)
+        voices_layout = QVBoxLayout(voices_card)
+        voices_layout.setContentsMargins(16, 16, 16, 16)
+        voices_layout.setSpacing(10)
+        voices_header = QHBoxLayout()
+        voices_header.addWidget(SubtitleLabel("Voices 列表"))
+        voices_header.addStretch()
         refresh_btn = PushButton("刷新列表")
         refresh_btn.setIcon(FluentIcon.SYNC)
         refresh_btn.clicked.connect(self.refresh_character_list)
-        list_header_layout.addWidget(refresh_btn)
-        
-        left_layout.addLayout(list_header_layout)
-        
-        # voices 列表（v2 优先）
+        voices_header.addWidget(refresh_btn)
+        voices_layout.addLayout(voices_header)
+
         self.character_table = TableWidget()
         self.character_table.setColumnCount(4)
         self.character_table.setHorizontalHeaderLabels(["voice_id", "character", "emotion", "mode"])
-        # self.character_table.setMaximumHeight(250) # 移除固定高度
-        
-        # 隐藏垂直表头
         self.character_table.verticalHeader().setVisible(False)
-        
-        # 设置列宽
         header = self.character_table.horizontalHeader()
-        # 允许用户调整列宽
         header.setSectionResizeMode(QHeaderView.Interactive)
-        # 设置最小宽度
         header.setMinimumSectionSize(80)
-        # 让最后一列填充剩余空间
         header.setStretchLastSection(True)
         self.character_table.setColumnWidth(0, 180)
         self.character_table.setColumnWidth(1, 120)
         self.character_table.setColumnWidth(2, 100)
         self.character_table.setColumnWidth(3, 140)
-        
-        left_layout.addWidget(self.character_table, 1) # 增加权重，使其占据剩余空间
-        
-        # left_layout.addStretch() # 移除Stretch，让表格填充
-        
-        # 控制按钮
-        self.start_btn = PrimaryPushButton("启动 API 服务")
-        self.start_btn.setIcon(FluentIcon.PLAY)
-        self.start_btn.clicked.connect(self.toggle_server)
-        left_layout.addWidget(self.start_btn)
-        
-        # 流式输出开关
-        self.stream_switch = SwitchButton("启用流式响应 (更快)")
-        self.stream_switch.checkedChanged.connect(self.on_stream_changed)
-        self.stream_switch.setEnabled(False)  # 服务未启动时禁用
-        left_layout.addWidget(self.stream_switch)
+        voices_layout.addWidget(self.character_table, 1)
+        layout.addWidget(voices_card, 3)
 
-        # 参考音色缓存开关
-        self.spk_cache_switch = SwitchButton("启用参考音色缓存 (加速)")
-        self.spk_cache_switch.checkedChanged.connect(self.on_spk_cache_changed)
-        self.spk_cache_switch.setEnabled(False)
-        left_layout.addWidget(self.spk_cache_switch)
-        
-        
-        # 桥接服务按钮
-        self.bridge_btn = PushButton("启动桥接服务")
-        self.bridge_btn.setIcon(FluentIcon.LINK)
-        self.bridge_btn.clicked.connect(self.toggle_bridge)
-        left_layout.addWidget(self.bridge_btn)
-        
-        # 状态指示
-        self.status_label = CaptionLabel("API: 已停止 | 桥接: 已停止")
-        self.status_label.setAlignment(Qt.AlignCenter)
-        left_layout.addWidget(self.status_label)
-        
-        layout.addWidget(left_panel, 1)
-        
-        # 右侧：日志输出
-        right_panel = CardWidget(self)
-        right_layout = QVBoxLayout(right_panel)
-        right_layout.setContentsMargins(20, 20, 20, 20)
-        
-        log_title = SubtitleLabel("运行日志")
-        right_layout.addWidget(log_title)
-        
+        # 4) 运行日志
+        log_card = CardWidget(self)
+        log_layout = QVBoxLayout(log_card)
+        log_layout.setContentsMargins(16, 16, 16, 16)
+        log_layout.setSpacing(10)
+        log_header = QHBoxLayout()
+        log_header.addWidget(SubtitleLabel("运行日志（等级徽标）"))
+        log_header.addStretch()
+        clear_btn = PushButton("清空日志")
+        clear_btn.clicked.connect(self.clear_logs)
+        log_header.addWidget(clear_btn)
+        log_layout.addLayout(log_header)
+
         self.log_view = TextEdit(self)
         self.log_view.setReadOnly(True)
-        font = QFont("Consolas", 10) # 使用 Consolas 字体，更像终端
+        font = QFont("Consolas", 10)
         font.setFixedPitch(True)
         self.log_view.setFont(font)
-        # 移除强制的浅色背景样式，让其跟随主题
-        self.log_view.setStyleSheet("""
-            TextEdit {
-                border: 1px solid rgba(0, 0, 0, 0.08);
-                border-radius: 6px;
-                padding: 8px;
-                background-color: transparent; 
-            }
-        """)
-        right_layout.addWidget(self.log_view)
-        
-        clear_btn = PushButton("清空日志")
-        clear_btn.clicked.connect(self.log_view.clear)
-        right_layout.addWidget(clear_btn)
-        
-        layout.addWidget(right_panel, 2)
-        
-        # 初始化角色列表（从本地加载）
-        # self.refresh_local_character_list() # 不再自动加载，等待服务启动或手动刷新
+        self.log_view.setStyleSheet(
+            f"TextEdit {{ border: 1px solid {Palette.BORDER}; border-radius: 6px; padding: 8px; background-color: transparent; }}"
+        )
+        log_layout.addWidget(self.log_view)
+        layout.addWidget(log_card, 3)
+
+        self.update_status_label()
     
     def refresh_local_character_list(self):
         """从本地配置加载角色列表"""
@@ -349,35 +344,79 @@ class APIPageInterface(QWidget):
     def connect_signals(self):
         self.log_received.connect(self.append_log)
 
-    def append_log(self, text):
-        """添加日志到日志窗口，支持颜色"""
-        if text.strip():
-            timestamp = datetime.now().strftime("%H:%M:%S")
-            log_line = f"[{timestamp}] {text}"
-            
-            # 使用在深浅色模式下都能看清的颜色，解决切换主题时看不清的问题
-            
-            color = "#808080"  # 默认灰色
+    def clear_logs(self):
+        self.log_entries = []
+        self.log_view.clear()
 
-            u = text.upper()
-            if "[ERROR]" in u or "失败" in text or "异常" in text or "错误" in text:
-                color = "#ff4500"  # OrangeRed
-            elif "[WARN]" in u or "警告" in text:
-                color = "#ff8c00"  # DarkOrange
-            elif "[OK]" in u or "成功" in text:
-                color = "#32cd32"  # LimeGreen
-            elif "[INFO]" in u or "正在" in text or "开始推理" in text:
-                color = "#1e90ff"  # DodgerBlue
-            elif "推理文本" in text:
-                color = "#9966cc"  # 统一的紫色
-            
-            html_line = f'<span style="color: {color}">{log_line}</span>'
-            self.log_view.append(html_line)
-            
-            # 滚动到底部
-            cursor = self.log_view.textCursor()
-            cursor.movePosition(cursor.End)
-            self.log_view.setTextCursor(cursor)
+    def _create_status_card(self, title: str):
+        card = CardWidget(self)
+        card.setStyleSheet(f"CardWidget {{ border: 1px solid {Palette.BORDER}; border-radius: 10px; }}")
+        lay = QVBoxLayout(card)
+        lay.setContentsMargins(12, 10, 12, 10)
+        lay.setSpacing(4)
+        lay.addWidget(CaptionLabel(title))
+        value = BodyLabel("已停止")
+        value.setStyleSheet(f"color: {Palette.TEXT_PRIMARY}; font-weight: 600;")
+        lay.addWidget(value)
+        detail = CaptionLabel("等待启动")
+        detail.setStyleSheet(f"color: {Palette.TEXT_SECONDARY};")
+        lay.addWidget(detail)
+        return card, value, detail
+
+    def _set_status_card_state(self, value_label: BodyLabel, detail_label: CaptionLabel, running: bool, detail: str):
+        value_label.setText("运行中" if running else "已停止")
+        value_label.setStyleSheet(
+            f"color: {Palette.SUCCESS if running else Palette.DANGER}; font-weight: 600;"
+        )
+        detail_label.setText(detail)
+
+    def _extract_level(self, text: str) -> str:
+        u = (text or "").upper()
+        if "[ERROR]" in u or "失败" in text or "异常" in text or "错误" in text:
+            return "ERROR"
+        if "[WARN]" in u or "警告" in text:
+            return "WARN"
+        if "[OK]" in u or "成功" in text:
+            return "OK"
+        return "INFO"
+
+    def _level_color(self, level: str):
+        if level == "ERROR":
+            return Palette.DANGER, "#FDECEC"
+        if level == "WARN":
+            return Palette.WARNING, "#FFF4E5"
+        if level == "OK":
+            return Palette.SUCCESS, "#E9F8EF"
+        return Palette.INFO, "#EAF6FF"
+
+    def _format_log_html(self, timestamp: str, level: str, message: str) -> str:
+        fg, bg = self._level_color(level)
+        safe_msg = html.escape(message)
+        return (
+            f'<span style="color:{Palette.TEXT_SECONDARY}">[{timestamp}]</span> '
+            f'<span style="color:{fg}; background:{bg}; border:1px solid {fg}; '
+            f'border-radius:8px; padding:1px 6px; font-weight:600;">{level}</span> '
+            f'<span style="color:{Palette.TEXT_PRIMARY}">{safe_msg}</span>'
+        )
+
+    def append_log(self, text):
+        """添加日志到日志窗口，使用等级徽标格式。"""
+        t = (text or "").strip()
+        if not t:
+            return
+
+        level = self._extract_level(t)
+        normalized = t
+        prefix = f"[{level}]"
+        if normalized.upper().startswith(prefix):
+            normalized = normalized[len(prefix):].strip()
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        self.log_entries.append((timestamp, level, normalized))
+        self.log_view.append(self._format_log_html(timestamp, level, normalized))
+
+        cursor = self.log_view.textCursor()
+        cursor.movePosition(cursor.End)
+        self.log_view.setTextCursor(cursor)
 
     def toggle_server(self):
         if self.server_thread and self.server_thread.isRunning():
@@ -901,9 +940,17 @@ class APIPageInterface(QWidget):
     
     def update_status_label(self):
         """更新状态标签"""
-        api_status = "运行中" if (self.server_thread and self.server_thread.isRunning()) else "已停止"
-        bridge_status = "运行中" if (self.bridge_process and self.bridge_process.poll() is None) else "已停止"
+        api_running = bool(self.server_thread and self.server_thread.isRunning())
+        bridge_running = bool(self.bridge_process and self.bridge_process.poll() is None)
+
+        api_status = "运行中" if api_running else "已停止"
+        bridge_status = "运行中" if bridge_running else "已停止"
         self.status_label.setText(f"API: {api_status} | 桥接: {bridge_status}")
+
+        api_detail = f"http://127.0.0.1:{self.port_spin.value()}" if api_running else "等待启动"
+        bridge_detail = "http://127.0.0.1:5000" if bridge_running else "等待启动"
+        self._set_status_card_state(self.api_status_value, self.api_status_detail, api_running, api_detail)
+        self._set_status_card_state(self.bridge_status_value, self.bridge_status_detail, bridge_running, bridge_detail)
 
     def closeEvent(self, event):
         self.shutdown()
