@@ -179,6 +179,8 @@ class APIPageInterface(QWidget):
     """API 服务管理界面"""
     
     log_received = pyqtSignal(str)
+    stream_toggle_done = pyqtSignal(bool, bool, str)  # ok, enabled, message
+    spk_cache_toggle_done = pyqtSignal(bool, bool, str)  # ok, enabled, message
     
     def __init__(self, main_window, parent=None):
         super().__init__(parent)
@@ -281,10 +283,10 @@ class APIPageInterface(QWidget):
         voices_header = QHBoxLayout()
         voices_header.addWidget(SubtitleLabel("Voices 列表"))
         voices_header.addStretch()
-        refresh_btn = PushButton("刷新列表")
-        refresh_btn.setIcon(FluentIcon.SYNC)
-        refresh_btn.clicked.connect(self.refresh_character_list)
-        voices_header.addWidget(refresh_btn)
+        self.refresh_btn = PushButton("刷新列表")
+        self.refresh_btn.setIcon(FluentIcon.SYNC)
+        self.refresh_btn.clicked.connect(self.refresh_character_list)
+        voices_header.addWidget(self.refresh_btn)
         voices_layout.addLayout(voices_header)
 
         self.character_table = TableWidget()
@@ -343,10 +345,44 @@ class APIPageInterface(QWidget):
 
     def connect_signals(self):
         self.log_received.connect(self.append_log)
+        self.stream_toggle_done.connect(self._on_stream_toggle_done)
+        self.spk_cache_toggle_done.connect(self._on_spk_cache_toggle_done)
 
     def clear_logs(self):
         self.log_entries = []
         self.log_view.clear()
+
+    @staticmethod
+    def _with_advice(message: str, advice: str = "") -> str:
+        msg = str(message or "").strip()
+        if not msg:
+            return advice or "未知错误"
+        if advice and "建议：" not in msg:
+            return f"{msg}。建议：{advice}"
+        return msg
+
+    def _begin_button_busy(self, btn: PushButton, busy_text: str) -> bool:
+        try:
+            if bool(btn.property("_busy")):
+                return False
+            if btn.property("_idle_text") is None:
+                btn.setProperty("_idle_text", btn.text())
+            btn.setProperty("_busy", True)
+            btn.setEnabled(False)
+            btn.setText(str(busy_text))
+            return True
+        except Exception:
+            return False
+
+    def _end_button_busy(self, btn: PushButton, *, enabled: bool = True):
+        try:
+            idle = btn.property("_idle_text")
+            if idle is not None:
+                btn.setText(str(idle))
+            btn.setEnabled(bool(enabled))
+            btn.setProperty("_busy", False)
+        except Exception:
+            pass
 
     def _create_status_card(self, title: str):
         card = CardWidget(self)
@@ -469,7 +505,7 @@ class APIPageInterface(QWidget):
         
         InfoBar.error(
             title='加载失败',
-            content=f'模型加载失败: {error_msg}',
+            content=self._with_advice(f'模型加载失败: {error_msg}', "可先手动点击“加载模型”，再重试启动 API。"),
             orient=Qt.Horizontal,
             isClosable=True,
             position=InfoBarPosition.TOP,
@@ -504,7 +540,7 @@ class APIPageInterface(QWidget):
             self.log_received.emit(f"[WARN] v2 voices 配置文件不可用: {v2_cfg}")
             InfoBar.error(
                 title='配置文件不存在',
-                content=f'找不到 v2 voices 配置文件: {v2_cfg}',
+                content=self._with_advice(f'找不到 v2 voices 配置文件: {v2_cfg}', "在设置页修正 v2 配置路径后重试。"),
                 orient=Qt.Horizontal,
                 isClosable=True,
                 position=InfoBarPosition.TOP,
@@ -545,7 +581,7 @@ class APIPageInterface(QWidget):
             self.spk_cache_switch.setEnabled(False)
             InfoBar.error(
                 title='服务启动失败',
-                content=f'启动服务失败: {str(e)}',
+                content=self._with_advice(f'启动服务失败: {str(e)}', "检查端口占用和模型加载状态。"),
                 orient=Qt.Horizontal,
                 isClosable=True,
                 position=InfoBarPosition.TOP,
@@ -603,7 +639,7 @@ class APIPageInterface(QWidget):
         
         InfoBar.error(
             title='服务错误',
-            content=error_msg,
+            content=self._with_advice(error_msg, "查看日志后修正配置，再重新启动服务。"),
             orient=Qt.Horizontal,
             isClosable=True,
             position=InfoBarPosition.TOP,
@@ -621,6 +657,8 @@ class APIPageInterface(QWidget):
         if not self.server_thread.is_running:
             self.log_received.emit("[WARN] 服务未运行，无法刷新角色列表")
             return
+        if not self._begin_button_busy(self.refresh_btn, "刷新中..."):
+            return
         
         try:
             port = int(self.port_spin.value())
@@ -633,6 +671,8 @@ class APIPageInterface(QWidget):
             self.log_received.emit(f"[WARN] 获取失败: {e.short()}")
         except Exception as e:
             self.log_received.emit(f"[ERROR] 获取角色列表异常: {str(e)}")
+        finally:
+            self._end_button_busy(self.refresh_btn)
 
     def _v2_client_for_localhost(self, port: int) -> V2Client:
         try:
@@ -724,28 +764,38 @@ class APIPageInterface(QWidget):
         """流式开关状态改变"""
         if not self.server_thread or not self.server_thread.is_running:
             return
-            
+             
         try:
             port = self.port_spin.value()
             url = f"http://127.0.0.1:{port}/api/toggle_stream"
-            
+            self.stream_switch.setEnabled(False)
             # 使用线程发送请求防止 UI 卡顿
-            threading.Thread(target=self._send_stream_request, args=(url, is_checked)).start()
+            threading.Thread(target=self._send_stream_request, args=(url, is_checked), daemon=True).start()
         except Exception as e:
+            self.stream_switch.setEnabled(True)
             self.log_received.emit(f"[ERROR] 设置流式输出失败: {e}")
-            
+             
     def _send_stream_request(self, url, enabled):
         """后台发送流式配置请求"""
         try:
             response = requests.post(url, json={'enabled': enabled}, timeout=2)
             if response.status_code == 200:
-                state = "开启" if enabled else "关闭"
-                self.log_received.emit(f"[OK] 流式输出已{state}")
+                self.stream_toggle_done.emit(True, bool(enabled), "")
             else:
-                self.log_received.emit(f"[WARN] 设置流式失败: {response.status_code}")
-                # 恢复 UI 状态 (需要在主线程执行，这里暂时省略，用户点击无效可手动切换回)
+                self.stream_toggle_done.emit(False, bool(enabled), f"HTTP {response.status_code}")
         except Exception as e:
-            self.log_received.emit(f"[ERROR] 设置流式请求异常: {e}")
+            self.stream_toggle_done.emit(False, bool(enabled), str(e))
+
+    def _on_stream_toggle_done(self, ok: bool, enabled: bool, message: str):
+        self.stream_switch.setEnabled(True)
+        if ok:
+            state = "开启" if enabled else "关闭"
+            self.log_received.emit(f"[OK] 流式输出已{state}")
+            return
+        self.stream_switch.blockSignals(True)
+        self.stream_switch.setChecked(not bool(enabled))
+        self.stream_switch.blockSignals(False)
+        self.log_received.emit(f"[WARN] 设置流式失败: {message}")
 
     def on_spk_cache_changed(self, is_checked):
         """参考音色缓存开关状态改变"""
@@ -755,10 +805,11 @@ class APIPageInterface(QWidget):
         try:
             port = self.port_spin.value()
             url = f"http://127.0.0.1:{port}/api/toggle_spk_cache"
-            
+            self.spk_cache_switch.setEnabled(False)
             # 使用线程发送请求防止 UI 卡顿
-            threading.Thread(target=self._send_spk_cache_request, args=(url, is_checked)).start()
+            threading.Thread(target=self._send_spk_cache_request, args=(url, is_checked), daemon=True).start()
         except Exception as e:
+            self.spk_cache_switch.setEnabled(True)
             self.log_received.emit(f"[ERROR] 设置参考音色缓存失败: {e}")
 
     def _send_spk_cache_request(self, url, enabled):
@@ -766,12 +817,22 @@ class APIPageInterface(QWidget):
         try:
             response = requests.post(url, json={'enabled': enabled}, timeout=2)
             if response.status_code == 200:
-                state = "开启" if enabled else "关闭"
-                self.log_received.emit(f"[OK] 参考音色缓存已{state}")
+                self.spk_cache_toggle_done.emit(True, bool(enabled), "")
             else:
-                self.log_received.emit(f"[WARN] 设置参考音色缓存失败: {response.status_code}")
+                self.spk_cache_toggle_done.emit(False, bool(enabled), f"HTTP {response.status_code}")
         except Exception as e:
-            self.log_received.emit(f"[ERROR] 设置参考音色缓存请求异常: {e}")
+            self.spk_cache_toggle_done.emit(False, bool(enabled), str(e))
+
+    def _on_spk_cache_toggle_done(self, ok: bool, enabled: bool, message: str):
+        self.spk_cache_switch.setEnabled(True)
+        if ok:
+            state = "开启" if enabled else "关闭"
+            self.log_received.emit(f"[OK] 参考音色缓存已{state}")
+            return
+        self.spk_cache_switch.blockSignals(True)
+        self.spk_cache_switch.setChecked(not bool(enabled))
+        self.spk_cache_switch.blockSignals(False)
+        self.log_received.emit(f"[WARN] 设置参考音色缓存失败: {message}")
     
     def toggle_bridge(self):
         """切换桥接服务状态"""
@@ -871,7 +932,7 @@ class APIPageInterface(QWidget):
             self.bridge_btn.setIcon(FluentIcon.LINK)
             InfoBar.error(
                 title='启动失败',
-                content=f'启动桥接服务失败: {str(e)}',
+                content=self._with_advice(f'启动桥接服务失败: {str(e)}', "检查 bridge.py 与 Python 路径配置。"),
                 orient=Qt.Horizontal,
                 isClosable=True,
                 position=InfoBarPosition.TOP,
