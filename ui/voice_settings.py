@@ -378,19 +378,15 @@ class VoiceSettingsInterface(QWidget):
             w.deleteLater()
 
         def _ok(res: object):
-            try:
-                on_ok(res)
-            finally:
-                _cleanup()
+            on_ok(res)
 
         def _err(e: object):
-            try:
-                on_err(e)
-            finally:
-                _cleanup()
+            on_err(e)
 
         w.ok.connect(_ok)
         w.err.connect(_err)
+        # Cleanup only after thread fully exits; avoids QThread destroyed-while-running race.
+        w.finished.connect(_cleanup)
         w.start()
 
     def _set_api_status(self, *, online: bool, detail: str = ""):
