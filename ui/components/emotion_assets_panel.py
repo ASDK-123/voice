@@ -409,6 +409,10 @@ class EmotionAssetsPanel(QWidget):
                 pass
 
         self._set_enabled(False)
+        card_bg = Palette.card_theme()
+        text_primary = Palette.text_primary_theme()
+        table_alt = Palette.table_alt_bg()
+        table_selected = Palette.table_selected_bg()
         self.setStyleSheet(
             f"""
             QWidget {{
@@ -417,19 +421,19 @@ class EmotionAssetsPanel(QWidget):
             QTableView {{
                 border: 1px solid {Palette.BORDER};
                 border-radius: {Radius.PANEL}px;
-                background: {Palette.CARD};
-                alternate-background-color: #FAFBFC;
+                background: {card_bg};
+                alternate-background-color: {table_alt};
                 gridline-color: {Palette.BORDER};
             }}
             QTableView::item:selected {{
-                background: #EFF6FF;
-                color: {Palette.TEXT_PRIMARY};
+                background: {table_selected};
+                color: {text_primary};
             }}
             QLineEdit {{
                 border: 1px solid {Palette.BORDER};
                 border-radius: {Radius.CONTROL}px;
                 padding: 0 10px;
-                background: {Palette.CARD};
+                background: {card_bg};
             }}
             """
         )

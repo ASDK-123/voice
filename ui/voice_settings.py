@@ -505,6 +505,10 @@ class VoiceSettingsInterface(QWidget):
         self.table.setColumnWidth(5, color_w)
 
     def _apply_page_styles(self):
+        card_bg = Palette.card_theme()
+        text_primary = Palette.text_primary_theme()
+        table_alt = Palette.table_alt_bg()
+        table_selected = Palette.table_selected_bg()
         self.setStyleSheet(
             f"""
             QWidget {{
@@ -513,23 +517,23 @@ class VoiceSettingsInterface(QWidget):
             QWidget#voiceSettingsTopToolbar {{
                 border: 1px solid {Palette.BORDER};
                 border-radius: {Radius.PANEL}px;
-                background: {Palette.CARD};
+                background: {card_bg};
             }}
             QWidget#voiceSettingsStatusStrip {{
                 border: 1px solid {Palette.BORDER};
                 border-radius: {Radius.CONTROL}px;
-                background: {Palette.CARD};
+                background: {card_bg};
             }}
             QTableView {{
                 border: 1px solid {Palette.BORDER};
                 border-radius: {Radius.PANEL}px;
-                background: {Palette.CARD};
-                alternate-background-color: #FAFBFC;
+                background: {card_bg};
+                alternate-background-color: {table_alt};
                 gridline-color: {Palette.BORDER};
             }}
             QTableView::item:selected {{
-                background: #EFF6FF;
-                color: {Palette.TEXT_PRIMARY};
+                background: {table_selected};
+                color: {text_primary};
             }}
             QLineEdit {{
                 border: 1px solid transparent;
@@ -539,7 +543,7 @@ class VoiceSettingsInterface(QWidget):
             }}
             QLineEdit:focus {{
                 border: 1px solid {Palette.BORDER};
-                background: {Palette.CARD};
+                background: {card_bg};
             }}
             QPlainTextEdit {{
                 border: 1px solid transparent;
@@ -549,7 +553,7 @@ class VoiceSettingsInterface(QWidget):
             }}
             QPlainTextEdit:focus {{
                 border: 1px solid {Palette.BORDER};
-                background: {Palette.CARD};
+                background: {card_bg};
             }}
             """
         )

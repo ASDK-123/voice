@@ -57,12 +57,13 @@ class VoiceRefsSheet(QFrame):
         root.addWidget(self.panel, 1)
 
         self.setVisible(False)
+        sheet_bg = Palette.card_theme()
         self.setStyleSheet(
             f"""
             QFrame#voiceRefsSheet {{
                 border: 1px solid {Palette.BORDER};
                 border-radius: 14px;
-                background: #FFFFFF;
+                background: {sheet_bg};
             }}
             """
         )

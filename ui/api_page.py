@@ -480,21 +480,23 @@ class APIPageInterface(QWidget):
 
     def _level_color(self, level: str):
         if level == "ERROR":
-            return Palette.DANGER, "#FDECEC"
+            return Palette.DANGER, Palette.log_badge_bg(level)
         if level == "WARN":
-            return Palette.WARNING, "#FFF4E5"
+            return Palette.WARNING, Palette.log_badge_bg(level)
         if level == "OK":
-            return Palette.SUCCESS, "#E9F8EF"
-        return Palette.INFO, "#EAF6FF"
+            return Palette.SUCCESS, Palette.log_badge_bg(level)
+        return Palette.INFO, Palette.log_badge_bg(level)
 
     def _format_log_html(self, timestamp: str, level: str, message: str) -> str:
         fg, bg = self._level_color(level)
+        text_secondary = Palette.text_secondary_theme()
+        text_primary = Palette.text_primary_theme()
         safe_msg = html.escape(message)
         return (
-            f'<span style="color:{Palette.TEXT_SECONDARY}">[{timestamp}]</span> '
+            f'<span style="color:{text_secondary}">[{timestamp}]</span> '
             f'<span style="color:{fg}; background:{bg}; border:1px solid {fg}; '
             f'border-radius:8px; padding:1px 6px; font-weight:600;">{level}</span> '
-            f'<span style="color:{Palette.TEXT_PRIMARY}">{safe_msg}</span>'
+            f'<span style="color:{text_primary}">{safe_msg}</span>'
         )
 
     def append_log(self, text):
