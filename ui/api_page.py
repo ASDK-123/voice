@@ -464,29 +464,34 @@ class APIPageInterface(QWidget):
         else:
             # 启动服务
             # 检查模型是否加载
+            active_model = None
+            try:
+                getter = getattr(self.main_window, "get_active_cosyvoice_model", None)
+                if callable(getter):
+                    active_model = getter()
+            except Exception:
+                active_model = None
+            if active_model is not None:
+                self.main_window.cosyvoice_model = active_model
+
             if self.main_window.cosyvoice_model is None:
-                # 检查是否有正在运行的 worker
-                if self.main_window.current_worker and self.main_window.current_worker.cosyvoice:
-                    self.main_window.cosyvoice_model = self.main_window.current_worker.cosyvoice
-                
-                if self.main_window.cosyvoice_model is None:
-                    # 自动加载模型
-                    self.log_received.emit("[INFO] 检测到模型未加载，正在自动加载模型...")
-                    self.start_btn.setEnabled(False)
-                    self.start_btn.setText("正在加载模型...")
-                    
-                    # 连接模型加载信号
-                    # 注意：这里需要小心信号连接，避免重复连接
-                    try:
-                        self.main_window.model_loader_thread = ModelLoaderThread()
-                        self.main_window.model_loader_thread.success.connect(self.on_auto_load_model_success)
-                        self.main_window.model_loader_thread.error.connect(self.on_auto_load_model_error)
-                        self.main_window.model_loader_thread.start()
-                    except Exception as e:
-                        self.log_received.emit(f"[ERROR] 自动加载模型失败: {str(e)}")
-                        self.start_btn.setEnabled(True)
-                        self.start_btn.setText("启动 API 服务")
-                    return
+                # 自动加载模型
+                self.log_received.emit("[INFO] 检测到模型未加载，正在自动加载模型...")
+                self.start_btn.setEnabled(False)
+                self.start_btn.setText("正在加载模型...")
+
+                # 连接模型加载信号
+                # 注意：这里需要小心信号连接，避免重复连接
+                try:
+                    self.main_window.model_loader_thread = ModelLoaderThread()
+                    self.main_window.model_loader_thread.success.connect(self.on_auto_load_model_success)
+                    self.main_window.model_loader_thread.error.connect(self.on_auto_load_model_error)
+                    self.main_window.model_loader_thread.start()
+                except Exception as e:
+                    self.log_received.emit(f"[ERROR] 自动加载模型失败: {str(e)}")
+                    self.start_btn.setEnabled(True)
+                    self.start_btn.setText("启动 API 服务")
+                return
 
             self.start_server_process()
 

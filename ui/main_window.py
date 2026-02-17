@@ -546,6 +546,15 @@ class CosyVoiceProApp(FluentWindow):
         # 启动线程
         self.current_worker.start()
 
+    def get_active_cosyvoice_model(self):
+        """返回当前可用的 CosyVoice 模型实例（兼容不同 worker 类型）。"""
+        if self.cosyvoice_model is not None:
+            return self.cosyvoice_model
+        worker = self.current_worker
+        if worker is None:
+            return None
+        return getattr(worker, "cosyvoice", None)
+
     def _set_generation_ui_running(self, running: bool):
         """同步主流程生成相关控件的运行态。"""
         if hasattr(self, "task_interface") and self.task_interface:
