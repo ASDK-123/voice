@@ -1,0 +1,1213 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CosyVoice API v2 控制台</title>
+  <style>
+    :root {
+      --bg: #0b1220;
+      --panel: #111a2b;
+      --panel-2: #17233a;
+      --text: #e9eef9;
+      --muted: #95a5c6;
+      --ok: #24c67a;
+      --warn: #f5b642;
+      --err: #ff6b6b;
+      --line: #233252;
+      --btn: #2a4a8b;
+      --btn-hover: #3560b3;
+      --input: #0e1628;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: radial-gradient(1200px 700px at 20% -10%, #22355d 0%, var(--bg) 42%);
+      color: var(--text);
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    .wrap {
+      width: min(1280px, 96vw);
+      margin: 20px auto 36px;
+      display: grid;
+      gap: 14px;
+    }
+    .card {
+      background: linear-gradient(180deg, var(--panel) 0%, var(--panel-2) 100%);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 14px;
+    }
+    .title {
+      margin: 0 0 10px;
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: 0.2px;
+    }
+    .row {
+      display: grid;
+      grid-template-columns: repeat(12, 1fr);
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .row > * { min-width: 0; }
+    .c1 { grid-column: span 1; }
+    .c2 { grid-column: span 2; }
+    .c3 { grid-column: span 3; }
+    .c4 { grid-column: span 4; }
+    .c5 { grid-column: span 5; }
+    .c6 { grid-column: span 6; }
+    .c7 { grid-column: span 7; }
+    .c8 { grid-column: span 8; }
+    .c9 { grid-column: span 9; }
+    .c10 { grid-column: span 10; }
+    .c11 { grid-column: span 11; }
+    .c12 { grid-column: span 12; }
+    @media (max-width: 920px) {
+      .row { grid-template-columns: repeat(1, 1fr); }
+      [class^="c"] { grid-column: span 1; }
+    }
+    label {
+      color: var(--muted);
+      font-size: 12px;
+      display: block;
+      margin: 0 0 4px;
+    }
+    input, textarea, select {
+      width: 100%;
+      border: 1px solid var(--line);
+      background: var(--input);
+      color: var(--text);
+      border-radius: 8px;
+      padding: 8px 10px;
+      outline: none;
+    }
+    textarea { min-height: 88px; resize: vertical; }
+    .btns { display: flex; flex-wrap: wrap; gap: 6px; }
+    button {
+      border: 1px solid #3a5ea8;
+      background: var(--btn);
+      color: #fff;
+      border-radius: 8px;
+      padding: 8px 10px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    button:hover { background: var(--btn-hover); }
+    button.danger { background: #8c2f3b; border-color: #b94554; }
+    button.ghost { background: transparent; border-color: var(--line); }
+    .muted { color: var(--muted); font-size: 12px; }
+    .ok { color: var(--ok); }
+    .warn { color: var(--warn); }
+    .err { color: var(--err); }
+    pre {
+      margin: 0;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #0a1324;
+      padding: 10px;
+      overflow: auto;
+      max-height: 260px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .grid2 {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: 1fr 1fr;
+    }
+    @media (max-width: 920px) { .grid2 { grid-template-columns: 1fr; } }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      border: 1px solid var(--line);
+      font-size: 12px;
+    }
+    th, td {
+      border: 1px solid var(--line);
+      padding: 6px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th { color: var(--muted); font-weight: 600; background: #0f1a31; }
+    .mono { font-family: Consolas, "Courier New", monospace; font-size: 12px; }
+    .pill {
+      display: inline-block;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 2px 8px;
+      font-size: 11px;
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1 class="title">CosyVoice API v2 网页控制台</h1>
+      <div class="row">
+        <div class="c5">
+          <label>API Base URL（局域网填服务端 IP，如 http://192.168.1.100:9880）</label>
+          <input id="baseUrl" placeholder="http://127.0.0.1:9880" />
+        </div>
+        <div class="c3">
+          <label>API Key（可空）</label>
+          <input id="apiKey" placeholder="V2_API_KEY 或 API_KEY" />
+        </div>
+        <div class="c2">
+          <label>轮询间隔(ms)</label>
+          <input id="pollMs" type="number" min="500" step="500" value="2000" />
+        </div>
+        <div class="c2">
+          <label>&nbsp;</label>
+          <div class="btns">
+            <button id="saveCfgBtn">保存配置</button>
+            <button id="healthBtn">健康检查</button>
+          </div>
+        </div>
+        <div class="c12 muted">
+          局域网使用方式：1) API 服务端以 <span class="mono">0.0.0.0:9880</span> 启动并放行防火墙；2) 本页面可通过任意静态服务器发布到局域网；3) 前端填写服务端 IP。
+        </div>
+      </div>
+      <div class="row">
+        <div class="c12"><span class="pill" id="healthPill">未检测</span></div>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="card">
+        <h2 class="title">1) 参考音频资产（Assets）</h2>
+        <div class="row">
+          <div class="c6">
+            <label>上传文件（file/audio）</label>
+            <input id="assetFile" type="file" accept=".wav,.mp3,.flac,.m4a,.ogg" />
+          </div>
+          <div class="c2">
+            <label>character</label>
+            <input id="assetCharacter" placeholder="Tom" />
+          </div>
+          <div class="c2">
+            <label>emotion</label>
+            <input id="assetEmotion" value="default" placeholder="default / happy / sad ..." />
+          </div>
+          <div class="c2">
+            <label>language</label>
+            <input id="assetLanguage" value="zh" placeholder="zh / en / ja ..." />
+          </div>
+          <div class="c12">
+            <label>note (optional)</label>
+            <input id="assetNote" placeholder="optional note" />
+          </div>
+          <div class="c6">
+            <label>&nbsp;</label>
+            <div class="btns">
+              <button id="uploadAssetBtn">上传</button>
+              <button id="refreshAssetsBtn">刷新列表</button>
+            </div>
+          </div>
+          <div class="c12">
+            <table id="assetsTable">
+              <thead>
+                <tr><th>asset_id</th><th>kind</th><th>character</th><th>emotion</th><th>lang</th><th>size</th><th>created_at</th><th>操作</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div class="c12">
+            <audio id="assetAudioPlayer" controls style="width:100%;"></audio>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2 class="title">2) Voice 配置（CRUD + Compile）</h2>
+        <div class="row">
+          <div class="c4"><label>name</label><input id="voiceName" placeholder="默认音色 或 角色#情绪" /></div>
+          <div class="c4">
+            <label>mode</label>
+            <select id="voiceMode">
+              <option>零样本复制</option>
+              <option>参考音色</option>
+              <option>精细控制</option>
+              <option>指令控制</option>
+            </select>
+          </div>
+          <div class="c4"><label>color</label><input id="voiceColor" value="#FF6B6B" /></div>
+          <div class="c4"><label>character</label><input id="voiceCharacter" placeholder="Tom" /></div>
+          <div class="c4"><label>emotion</label><input id="voiceEmotion" value="default" placeholder="default / happy / sad ..." /></div>
+          <div class="c4">
+            <label>auto name (character#emotion)</label>
+            <select id="voiceAutoName"><option value="true">true</option><option value="false">false</option></select>
+          </div>
+          <div class="c4">
+            <label>selection_policy</label>
+            <select id="voiceSelectionPolicy">
+              <option value="random_per_text">random_per_text</option>
+              <option value="fixed">fixed</option>
+              <option value="random_per_request">random_per_request</option>
+            </select>
+          </div>
+          <div class="c8"><label>prompt_text</label><textarea id="voicePromptText"></textarea></div>
+          <div class="c4"><label>prompt_audio_asset_id（推荐）</label><input id="voicePromptAssetId" placeholder="ref_xxx" /></div>
+          <div class="c12"><label>instruct_text</label><textarea id="voiceInstructText"></textarea></div>
+          <div class="c12"><label>ref_asset_ids (comma/newline separated; used for emotion voices)</label><textarea id="voiceRefAssetIds" class="mono" placeholder="ref_xxx, ref_yyy"></textarea></div>
+          <div class="c12">
+            <div class="btns">
+              <button id="refreshRefPickerBtn" class="ghost">刷新 Ref Picker</button>
+              <button id="clearRefIdsBtn" class="ghost">清空 ref_asset_ids</button>
+            </div>
+            <div class="muted" style="margin-top:6px;">Ref Picker: 勾选后会同步到 ref_asset_ids；默认按 character+emotion 过滤 kind=ref 的资产</div>
+            <div id="voiceRefPicker" class="row" style="margin-top:6px;"></div>
+          </div>
+          <div class="c12 btns">
+            <button id="createVoiceBtn">创建</button>
+            <button id="updateVoiceBtn">更新(PUT 同名)</button>
+            <button id="getVoiceBtn">查询</button>
+            <button id="compileVoiceBtn">预编译</button>
+            <button id="deleteVoiceBtn" class="danger">删除</button>
+            <button id="listVoicesBtn">刷新列表</button>
+          </div>
+          <div class="c12">
+            <table id="voicesTable">
+              <thead>
+                <tr><th>name</th><th>character</th><th>emotion</th><th>mode</th><th>ref_cnt</th><th>prompt_audio</th><th>操作</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div class="c12">
+            <h3 class="title" style="margin-top:10px;">按角色分组（character -> emotions）</h3>
+            <table id="emotionGroupsTable">
+              <thead>
+                <tr><th>character</th><th>emotion</th><th>voice_name</th><th>ref_assets</th><th>selection_policy</th><th>操作</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="card">
+        <h2 class="title">3) 统一合成（/api/v2/synthesize）</h2>
+        <div class="row">
+          <div class="c12"><label>text</label><textarea id="synText">你好，这是 API v2 合成测试。</textarea></div>
+          <div class="c3"><label>mode</label>
+            <select id="synMode">
+              <option value="">(按 voice 默认)</option>
+              <option>零样本复制</option>
+              <option>参考音色</option>
+              <option>精细控制</option>
+              <option>指令控制</option>
+            </select>
+          </div>
+          <div class="c3"><label>speed</label><input id="synSpeed" type="number" step="0.1" value="1.0" /></div>
+          <div class="c3"><label>voice_id（优先）</label><input id="synVoiceId" placeholder="默认音色" /></div>
+          <div class="c3"><label>已保存角色（下拉）</label>
+            <select id="synVoiceSelect"><option value="">(未加载)</option></select>
+          </div>
+          <div class="c3"><label>character（可选）</label><input id="synCharacter" placeholder="Tom" /></div>
+          <div class="c3"><label>emotion（可选）</label><input id="synEmotion" value="default" /></div>
+          <div class="c3"><label>selection_policy（可选）</label>
+            <select id="synSelectionPolicy">
+              <option value="">(按 voice 默认)</option>
+              <option value="random_per_text">random_per_text</option>
+              <option value="fixed">fixed</option>
+              <option value="random_per_request">random_per_request</option>
+            </select>
+          </div>
+          <div class="c3"><label>variation_seed（可选）</label><input id="synVariationSeed" type="number" value="0" /></div>
+          <div class="c2"><label>prefer_async</label><select id="synPreferAsync"><option value="false">false</option><option value="true">true</option></select></div>
+          <div class="c2"><label>sync_wait_ms</label><input id="synSyncWaitMs" type="number" value="0" step="100" min="0" /></div>
+          <div class="c3"><label>response_format</label>
+            <select id="synRespFmt"><option value="audio">audio</option><option value="json">json</option></select>
+          </div>
+          <div class="c6"><label>direct: prompt_text</label><textarea id="synPromptText"></textarea></div>
+          <div class="c3"><label>direct: prompt_audio_asset_id</label><input id="synPromptAssetId" /></div>
+          <div class="c3"><label>direct: 上传 prompt_audio（multipart）</label><input id="synPromptFile" type="file" /></div>
+          <div class="c4"><label>instruct_text</label><input id="synInstructText" /></div>
+          <div class="c2"><label>use_instruction</label><select id="synUseInstruction"><option value="false">false</option><option value="true">true</option></select></div>
+          <div class="c6"><label>instruction（可选，增强）</label><input id="synInstruction" placeholder="例如：用高兴的语气读" /></div>
+          <div class="c2"><label>save_output</label><select id="synSaveOutput"><option value="false">false</option><option value="true">true</option></select></div>
+          <div class="c9 btns">
+            <button id="synthesizeBtn">执行合成</button>
+            <button id="refreshRoleSourcesBtn">刷新已保存角色</button>
+            <button id="fillFromVoiceBtn" class="ghost">从 Voice 表单填充</button>
+          </div>
+          <div class="c12"><audio id="synAudioPlayer" controls style="width:100%;"></audio></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2 class="title">4) 批量任务（Jobs）</h2>
+        <div class="row">
+          <div class="c12">
+            <label>任务 JSON（POST /api/v2/jobs）</label>
+            <textarea id="jobPayload" class="mono"></textarea>
+          </div>
+          <div class="c12 btns">
+            <button id="createJobBtn">提交任务</button>
+            <button id="getJobBtn">查询任务</button>
+            <button id="cancelJobBtn" class="danger">取消任务</button>
+            <button id="retryJobBtn">重试任务</button>
+            <button id="togglePollBtn">开始轮询</button>
+          </div>
+          <div class="c6"><label>当前 job_id</label><input id="jobId" /></div>
+          <div class="c6 muted" id="jobStateText">status: -</div>
+          <div class="c12">
+            <table id="jobResultsTable">
+              <thead>
+                <tr><th>segment</th><th>voice</th><th>asset_id</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 class="title">5) 合并音频（Merge）</h2>
+      <div class="row">
+        <div class="c8"><label>asset_ids（逗号分隔）</label><input id="mergeAssetIds" placeholder="output_xxx,output_yyy" /></div>
+        <div class="c4"><label>output_name（可空）</label><input id="mergeOutputName" placeholder="demo_merged.wav" /></div>
+        <div class="c12 btns"><button id="mergeBtn">执行合并</button></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 class="title">实时日志</h2>
+      <pre id="log"></pre>
+      <div class="btns" style="margin-top:8px;">
+        <button id="clearLogBtn" class="ghost">清空日志</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const logEl = $("log");
+    let pollTimer = null;
+    let assetsCache = [];
+    let voicesCache = [];
+    let discoveredRoles = [];
+
+    function log(msg, type = "") {
+      const ts = new Date().toLocaleTimeString();
+      const prefix = type ? `[${type}]` : "";
+      logEl.textContent += `${ts} ${prefix} ${msg}\n`;
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function saveCfg() {
+      localStorage.setItem("cv_api_base", $("baseUrl").value.trim());
+      localStorage.setItem("cv_api_key", $("apiKey").value.trim());
+      localStorage.setItem("cv_poll_ms", $("pollMs").value.trim());
+      log("配置已保存");
+    }
+
+    function loadCfg() {
+      const fromStorage = localStorage.getItem("cv_api_base");
+      const guess = location.protocol.startsWith("http") && location.hostname
+        ? `${location.protocol}//${location.hostname}:9880`
+        : "http://127.0.0.1:9880";
+      $("baseUrl").value = fromStorage || guess;
+      $("apiKey").value = localStorage.getItem("cv_api_key") || "";
+      $("pollMs").value = localStorage.getItem("cv_poll_ms") || "2000";
+
+      const jobTemplate = {
+        segments: [
+          { text: "第一段任务文本", voice_id: "默认音色", mode: "零样本复制", speed: 1.0 },
+          { text: "第二段任务文本", voice_id: "默认音色", mode: "零样本复制", speed: 1.0 }
+        ],
+        merge: true
+      };
+      $("jobPayload").value = JSON.stringify(jobTemplate, null, 2);
+    }
+
+    function apiBase() {
+      return $("baseUrl").value.trim().replace(/\/+$/, "");
+    }
+
+    async function apiFetch(path, options = {}, asBlob = false) {
+      const url = `${apiBase()}${path}`;
+      const headers = new Headers(options.headers || {});
+      const apiKey = $("apiKey").value.trim();
+      if (apiKey) headers.set("X-API-Key", apiKey);
+      const isFormData = options.body instanceof FormData;
+      if (!isFormData && !headers.has("Content-Type") && options.body && typeof options.body === "string") {
+        headers.set("Content-Type", "application/json");
+      }
+      const resp = await fetch(url, { ...options, headers });
+      if (!resp.ok) {
+        const t = await resp.text();
+        throw new Error(`${resp.status} ${resp.statusText}: ${t}`);
+      }
+      return asBlob ? resp.blob() : resp;
+    }
+
+    async function tryJson(path) {
+      try {
+        const r = await apiFetch(path);
+        return await r.json();
+      } catch {
+        return null;
+      }
+    }
+
+    function setHealth(ok, text) {
+      const el = $("healthPill");
+      el.textContent = text;
+      el.className = `pill ${ok ? "ok" : "err"}`;
+    }
+
+    async function checkHealth() {
+      try {
+        const r = await apiFetch("/api/v2/health");
+        const j = await r.json();
+        setHealth(true, `在线 | model_loaded=${j.model_loaded}`);
+        log("健康检查成功");
+      } catch (e) {
+        setHealth(false, "离线/鉴权失败");
+        log(`健康检查失败: ${e.message}`, "ERR");
+      }
+    }
+
+    async function uploadAsset() {
+      const f = $("assetFile").files[0];
+      if (!f) return log("请先选择音频文件", "WARN");
+      const fd = new FormData();
+      fd.append("file", f);
+      const ch = ($("assetCharacter").value || "").trim();
+      const emo = ($("assetEmotion").value || "").trim();
+      const lang = ($("assetLanguage").value || "").trim();
+      const note = ($("assetNote").value || "").trim();
+      if (ch) fd.append("character", ch);
+      if (emo) fd.append("emotion", emo);
+      if (lang) fd.append("language", lang);
+      if (note) fd.append("note", note);
+      try {
+        const r = await apiFetch("/api/v2/assets/audio", { method: "POST", body: fd });
+        const j = await r.json();
+        log(`上传成功: ${j.asset_id}`);
+        await refreshAssets();
+      } catch (e) {
+        log(`上传失败: ${e.message}`, "ERR");
+      }
+    }
+
+    function renderAssets(items) {
+      assetsCache = items || [];
+      const tbody = $("assetsTable").querySelector("tbody");
+      tbody.innerHTML = "";
+      for (const a of assetsCache) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td class="mono">${a.asset_id || ""}</td>
+          <td>${a.kind || ""}</td>
+          <td>${a.character || ""}</td>
+          <td>${a.emotion || ""}</td>
+          <td>${a.language || ""}</td>
+          <td>${a.size || 0}</td>
+          <td>${a.created_at || ""}</td>
+          <td class="btns">
+            <button data-id="${a.asset_id}" data-act="use">填入</button>
+            <button data-id="${a.asset_id}" data-act="bindref">绑定到 ref_asset_ids</button>
+            <button data-id="${a.asset_id}" data-act="play">试听</button>
+            <button data-id="${a.asset_id}" data-act="del" class="danger">删除</button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      }
+      tbody.onclick = async (ev) => {
+        const btn = ev.target.closest("button");
+        if (!btn) return;
+        const id = btn.dataset.id;
+        const act = btn.dataset.act;
+        if (act === "use") {
+          $("voicePromptAssetId").value = id;
+          $("synPromptAssetId").value = id;
+          log(`已填入 asset_id: ${id}`);
+          return;
+        }
+        if (act === "bindref") {
+          const ids = getRefIds();
+          if (!ids.includes(id)) ids.push(id);
+          setRefIds(ids);
+          log(`已加入 ref_asset_ids: ${id}`);
+          return;
+        }
+        if (act === "play") {
+          try {
+            const b = await apiFetch(`/api/v2/assets/audio/${encodeURIComponent(id)}/content`, {}, true);
+            const url = URL.createObjectURL(b);
+            $("assetAudioPlayer").src = url;
+            $("assetAudioPlayer").play();
+            log(`播放 asset: ${id}`);
+          } catch (e) {
+            log(`播放失败: ${e.message}`, "ERR");
+          }
+          return;
+        }
+        if (act === "del") {
+          try {
+            await apiFetch(`/api/v2/assets/audio/${encodeURIComponent(id)}`, { method: "DELETE" });
+            log(`删除 asset: ${id}`);
+            await refreshAssets();
+          } catch (e) {
+            log(`删除失败: ${e.message}`, "ERR");
+          }
+        }
+      };
+    }
+
+    async function refreshAssets() {
+      try {
+        const r = await apiFetch("/api/v2/assets/audio");
+        const j = await r.json();
+        renderAssets(j.items || []);
+        log(`资产数量: ${j.count}`);
+        renderRefAssetPicker();
+        renderEmotionGroups();
+      } catch (e) {
+        log(`获取资产失败: ${e.message}`, "ERR");
+      }
+    }
+
+    function parseIdList(s) {
+      return String(s || "")
+        .split(/[\n,]+/g)
+        .map(x => x.trim())
+        .filter(Boolean);
+    }
+
+    function uniq(arr) {
+      const out = [];
+      const seen = new Set();
+      for (const x of arr || []) {
+        const v = String(x || "").trim();
+        if (!v || seen.has(v)) continue;
+        seen.add(v);
+        out.push(v);
+      }
+      return out;
+    }
+
+    function getRefIds() {
+      const el = $("voiceRefAssetIds");
+      if (!el) return [];
+      return uniq(parseIdList(el.value));
+    }
+
+    function setRefIds(ids) {
+      const el = $("voiceRefAssetIds");
+      if (!el) return;
+      el.value = uniq(ids).join(", ");
+      renderRefAssetPicker();
+    }
+
+    function syncVoiceNameFromCharEmotion() {
+      const auto = ($("voiceAutoName") && $("voiceAutoName").value) ? $("voiceAutoName").value === "true" : false;
+      if (!auto) return;
+      const ch = ($("voiceCharacter").value || "").trim();
+      const emo = ($("voiceEmotion").value || "").trim() || "default";
+      if (!ch) return;
+      $("voiceName").value = `${ch}#${emo}`;
+    }
+
+    function renderRefAssetPicker() {
+      const box = $("voiceRefPicker");
+      if (!box) return;
+      const ch = ($("voiceCharacter").value || "").trim();
+      const emo = (($("voiceEmotion").value || "").trim() || "default");
+      const selected = new Set(getRefIds());
+
+      const candidates = (assetsCache || []).filter(a => {
+        if (!a) return false;
+        if ((a.kind || "") !== "ref") return false;
+        if (ch && (a.character || "") !== ch) return false;
+        if (emo && (a.emotion || "default") !== emo) return false;
+        return true;
+      });
+
+      box.innerHTML = "";
+      if (!candidates.length) {
+        const div = document.createElement("div");
+        div.className = "c12 muted";
+        div.textContent = "无可用 ref assets（请先上传，并设置 character/emotion）";
+        box.appendChild(div);
+        return;
+      }
+
+      for (const a of candidates) {
+        const id = a.asset_id || "";
+        const wrap = document.createElement("div");
+        wrap.className = "c6";
+        const checked = selected.has(id) ? "checked" : "";
+        wrap.innerHTML = `
+          <label style="display:flex;gap:8px;align-items:center;">
+            <input type="checkbox" data-asset="${id}" ${checked} />
+            <span class="mono">${id}</span>
+            <span class="muted">${a.language || ""}</span>
+          </label>
+        `;
+        box.appendChild(wrap);
+      }
+
+      box.onchange = (ev) => {
+        const cb = ev.target.closest("input[type=checkbox]");
+        if (!cb) return;
+        const id = cb.dataset.asset;
+        const ids = new Set(getRefIds());
+        if (cb.checked) ids.add(id); else ids.delete(id);
+        setRefIds(Array.from(ids));
+      };
+    }
+
+    function voiceFormData() {
+      syncVoiceNameFromCharEmotion();
+      return {
+        name: $("voiceName").value.trim(),
+        character: ($("voiceCharacter").value || "").trim() || undefined,
+        emotion: ($("voiceEmotion").value || "").trim() || undefined,
+        selection_policy: ($("voiceSelectionPolicy").value || "").trim() || undefined,
+        ref_asset_ids: getRefIds(),
+        mode: $("voiceMode").value,
+        prompt_text: $("voicePromptText").value,
+        prompt_audio_asset_id: $("voicePromptAssetId").value.trim(),
+        instruct_text: $("voiceInstructText").value,
+        color: $("voiceColor").value.trim() || "#FF6B6B"
+      };
+    }
+
+    function setVoiceForm(v) {
+      $("voiceName").value = v.name || "";
+      $("voiceMode").value = v.mode || "零样本复制";
+      $("voicePromptText").value = v.prompt_text || "";
+      $("voiceColor").value = v.color || "#FF6B6B";
+      if (v.prompt_audio && v.prompt_audio.startsWith("data/assets/audio/")) {
+        $("voicePromptAssetId").value = "";
+      }
+      $("voiceInstructText").value = v.instruct_text || "";
+      const n = String(v.name || "");
+      const fromName = n.includes("#") ? n.split("#", 2) : null;
+      $("voiceCharacter").value = v.character || (fromName ? fromName[0] : "") || "";
+      $("voiceEmotion").value = v.emotion || (fromName ? fromName[1] : "") || "default";
+      $("voiceSelectionPolicy").value = v.selection_policy || "random_per_text";
+      setRefIds(Array.isArray(v.ref_asset_ids) ? v.ref_asset_ids : []);
+      renderRefAssetPicker();
+    }
+
+    function renderVoices(items) {
+      voicesCache = items || [];
+      const tbody = $("voicesTable").querySelector("tbody");
+      tbody.innerHTML = "";
+      for (const v of voicesCache) {
+        const tr = document.createElement("tr");
+        const n = String(v.name || "");
+        const fromName = n.includes("#") ? n.split("#", 2) : null;
+        const ch = v.character || (fromName ? fromName[0] : "") || "";
+        const emo = v.emotion || (fromName ? fromName[1] : "") || "";
+        const refCnt = Array.isArray(v.ref_asset_ids) ? v.ref_asset_ids.length : 0;
+        tr.innerHTML = `
+          <td>${v.name || ""}</td>
+          <td>${ch}</td>
+          <td>${emo}</td>
+          <td>${v.mode || ""}</td>
+          <td>${refCnt}</td>
+          <td class="mono">${v.prompt_audio || ""}</td>
+          <td class="btns">
+            <button data-name="${v.name}" data-act="fill">填充</button>
+            <button data-name="${v.name}" data-act="compile">编译</button>
+            <button data-name="${v.name}" data-act="delete" class="danger">删</button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      }
+      tbody.onclick = async (ev) => {
+        const btn = ev.target.closest("button");
+        if (!btn) return;
+        const name = btn.dataset.name;
+        const act = btn.dataset.act;
+        if (act === "fill") {
+          const v = voicesCache.find(x => x.name === name);
+          if (v) {
+            setVoiceForm(v);
+            $("synVoiceId").value = name;
+            log(`已填充 voice: ${name}`);
+          }
+          return;
+        }
+        if (act === "compile") {
+          try {
+            await apiFetch(`/api/v2/voices/${encodeURIComponent(name)}/compile`, { method: "POST" });
+            log(`编译完成: ${name}`);
+          } catch (e) {
+            log(`编译失败: ${e.message}`, "ERR");
+          }
+          return;
+        }
+        if (act === "delete") {
+          try {
+            await apiFetch(`/api/v2/voices/${encodeURIComponent(name)}`, { method: "DELETE" });
+            log(`删除 voice: ${name}`);
+            await listVoices();
+          } catch (e) {
+            log(`删除失败: ${e.message}`, "ERR");
+          }
+        }
+      };
+      refreshRoleOptions();
+      renderEmotionGroups();
+      renderRefAssetPicker();
+    }
+
+    function renderEmotionGroups() {
+      const tbl = $("emotionGroupsTable");
+      if (!tbl) return;
+      const tbody = tbl.querySelector("tbody");
+      tbody.innerHTML = "";
+
+      // Build asset counts by (character, emotion)
+      const assetCnt = new Map();
+      for (const a of (assetsCache || [])) {
+        if (!a || (a.kind || "") !== "ref") continue;
+        const ch = String(a.character || "").trim();
+        const emo = String(a.emotion || "default").trim() || "default";
+        const key = `${ch}#${emo}`;
+        assetCnt.set(key, (assetCnt.get(key) || 0) + 1);
+      }
+
+      const rows = [];
+      for (const v of (voicesCache || [])) {
+        const n = String(v.name || "").trim();
+        if (!n) continue;
+        let ch = String(v.character || "").trim();
+        let emo = String(v.emotion || "").trim();
+        if ((!ch || !emo) && n.includes("#")) {
+          const parts = n.split("#", 2);
+          ch = ch || parts[0];
+          emo = emo || parts[1];
+        }
+        if (!ch) continue;
+        emo = emo || "default";
+        rows.push({
+          character: ch,
+          emotion: emo,
+          name: n,
+          ref_assets: assetCnt.get(`${ch}#${emo}`) || 0,
+          selection_policy: v.selection_policy || "random_per_text"
+        });
+      }
+
+      rows.sort((a, b) => (a.character + "#" + a.emotion).localeCompare(b.character + "#" + b.emotion));
+
+      for (const r of rows) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${r.character}</td>
+          <td>${r.emotion}</td>
+          <td class="mono">${r.name}</td>
+          <td>${r.ref_assets}</td>
+          <td class="mono">${r.selection_policy}</td>
+          <td class="btns"><button data-name="${r.name}" data-act="fill">填充到表单</button></td>
+        `;
+        tbody.appendChild(tr);
+      }
+
+      tbody.onclick = (ev) => {
+        const btn = ev.target.closest("button");
+        if (!btn) return;
+        const name = btn.dataset.name;
+        const v = voicesCache.find(x => (x && x.name) === name);
+        if (v) {
+          setVoiceForm(v);
+          log(`已从分组表填充 voice: ${name}`);
+        }
+      };
+    }
+
+    function refreshRoleOptions() {
+      const select = $("synVoiceSelect");
+      const old = select.value;
+      const names = [];
+      const set = new Set();
+      for (const v of voicesCache) {
+        const n = (v && v.name) ? String(v.name).trim() : "";
+        if (n && !set.has(n)) { set.add(n); names.push(n); }
+      }
+      for (const n of discoveredRoles) {
+        if (n && !set.has(n)) { set.add(n); names.push(n); }
+      }
+      select.innerHTML = `<option value="">(请选择已保存角色)</option>`;
+      for (const n of names) {
+        const op = document.createElement("option");
+        op.value = n;
+        op.textContent = n;
+        select.appendChild(op);
+      }
+      if (old && names.includes(old)) select.value = old;
+      if (!select.value && $("synVoiceId").value.trim() && names.includes($("synVoiceId").value.trim())) {
+        select.value = $("synVoiceId").value.trim();
+      }
+    }
+
+    async function discoverSavedRoles() {
+      const roleSet = new Set();
+
+      const v2 = await tryJson("/api/v2/voices");
+      if (v2 && Array.isArray(v2.items)) {
+        for (const it of v2.items) {
+          if (it && it.name) roleSet.add(String(it.name).trim());
+        }
+      }
+
+      const chars = await tryJson("/api/characters");
+      if (Array.isArray(chars)) {
+        for (const it of chars) {
+          if (it && it.name) roleSet.add(String(it.name).trim());
+          if (it && it.voice_id) roleSet.add(String(it.voice_id).trim());
+        }
+      }
+
+      const speakers = await tryJson("/speakers");
+      if (Array.isArray(speakers)) {
+        for (const it of speakers) {
+          if (it && it.name) roleSet.add(String(it.name).trim());
+          if (it && it.voice_id) roleSet.add(String(it.voice_id).trim());
+        }
+      }
+
+      discoveredRoles = Array.from(roleSet).filter(Boolean);
+      refreshRoleOptions();
+      log(`已发现保存角色: ${discoveredRoles.length}`);
+    }
+
+    async function listVoices() {
+      try {
+        const r = await apiFetch("/api/v2/voices");
+        const j = await r.json();
+        renderVoices(j.items || []);
+        log(`voice 数量: ${j.count}`);
+      } catch (e) {
+        log(`获取 voice 列表失败: ${e.message}`, "ERR");
+        // 不阻断：仍尝试从旧端点发现已保存角色
+        refreshRoleOptions();
+      }
+    }
+
+    async function createVoice() {
+      const payload = voiceFormData();
+      if (!payload.name) return log("voice name 不能为空", "WARN");
+      try {
+        const r = await apiFetch("/api/v2/voices", { method: "POST", body: JSON.stringify(payload) });
+        const j = await r.json();
+        log(`创建 voice 成功: ${j.name}`);
+        await listVoices();
+      } catch (e) {
+        log(`创建失败: ${e.message}`, "ERR");
+      }
+    }
+
+    async function updateVoice() {
+      const payload = voiceFormData();
+      if (!payload.name) return log("voice name 不能为空", "WARN");
+      try {
+        const r = await apiFetch(`/api/v2/voices/${encodeURIComponent(payload.name)}`, {
+          method: "PUT",
+          body: JSON.stringify(payload)
+        });
+        const j = await r.json();
+        log(`更新 voice 成功: ${j.name}`);
+        await listVoices();
+      } catch (e) {
+        log(`更新失败: ${e.message}`, "ERR");
+      }
+    }
+
+    async function getVoice() {
+      const name = $("voiceName").value.trim();
+      if (!name) return log("请输入 voice name", "WARN");
+      try {
+        const r = await apiFetch(`/api/v2/voices/${encodeURIComponent(name)}`);
+        const j = await r.json();
+        setVoiceForm(j);
+        log(`查询成功: ${name}`);
+      } catch (e) {
+        log(`查询失败: ${e.message}`, "ERR");
+      }
+    }
+
+    async function compileVoice() {
+      const name = $("voiceName").value.trim();
+      if (!name) return log("请输入 voice name", "WARN");
+      try {
+        const all = getRefIds().length > 0;
+        const q = all ? "?all=true" : "";
+        await apiFetch(`/api/v2/voices/${encodeURIComponent(name)}/compile${q}`, { method: "POST" });
+        log(`voice 编译成功: ${name}`);
+      } catch (e) {
+        log(`voice 编译失败: ${e.message}`, "ERR");
+      }
+    }
+
+    async function deleteVoice() {
+      const name = $("voiceName").value.trim();
+      if (!name) return log("请输入 voice name", "WARN");
+      try {
+        await apiFetch(`/api/v2/voices/${encodeURIComponent(name)}`, { method: "DELETE" });
+        log(`voice 删除成功: ${name}`);
+        await listVoices();
+      } catch (e) {
+        log(`voice 删除失败: ${e.message}`, "ERR");
+      }
+    }
+
+    async function synthesize() {
+      const hasPromptFile = $("synPromptFile").files.length > 0;
+      const responseFormat = $("synRespFmt").value;
+      const selectedVoice = $("synVoiceSelect").value.trim();
+      if (selectedVoice) $("synVoiceId").value = selectedVoice;
+      try {
+        let resp;
+        if (hasPromptFile) {
+          const fd = new FormData();
+          fd.append("text", $("synText").value);
+          fd.append("mode", $("synMode").value);
+          fd.append("speed", $("synSpeed").value);
+          fd.append("voice_id", $("synVoiceId").value.trim());
+          fd.append("character", ($("synCharacter").value || "").trim());
+          fd.append("emotion", ($("synEmotion").value || "").trim());
+          fd.append("selection_policy", ($("synSelectionPolicy").value || "").trim());
+          fd.append("variation_seed", $("synVariationSeed").value);
+          fd.append("prefer_async", $("synPreferAsync").value);
+          fd.append("sync_wait_ms", $("synSyncWaitMs").value);
+          fd.append("prompt_text", $("synPromptText").value);
+          fd.append("prompt_audio_asset_id", $("synPromptAssetId").value.trim());
+          fd.append("instruct_text", $("synInstructText").value);
+          fd.append("use_instruction", $("synUseInstruction").value);
+          fd.append("instruction", $("synInstruction").value);
+          fd.append("response_format", responseFormat);
+          fd.append("save_output", $("synSaveOutput").value);
+          fd.append("prompt_audio", $("synPromptFile").files[0]);
+          resp = await apiFetch("/api/v2/synthesize", { method: "POST", body: fd });
+        } else {
+          const payload = {
+            text: $("synText").value,
+            mode: $("synMode").value || undefined,
+            speed: Number($("synSpeed").value || 1.0),
+            voice_id: $("synVoiceId").value.trim() || undefined,
+            character: ($("synCharacter").value || "").trim() || undefined,
+            emotion: ($("synEmotion").value || "").trim() || undefined,
+            selection_policy: ($("synSelectionPolicy").value || "").trim() || undefined,
+            variation_seed: Number($("synVariationSeed").value || 0),
+            prefer_async: $("synPreferAsync").value === "true",
+            sync_wait_ms: Number($("synSyncWaitMs").value || 0),
+            prompt_text: $("synPromptText").value || undefined,
+            prompt_audio_asset_id: $("synPromptAssetId").value.trim() || undefined,
+            instruct_text: $("synInstructText").value || undefined,
+            use_instruction: $("synUseInstruction").value === "true",
+            instruction: ($("synInstruction").value || "").trim() || undefined,
+            response_format: responseFormat,
+            save_output: $("synSaveOutput").value === "true"
+          };
+          resp = await apiFetch("/api/v2/synthesize", { method: "POST", body: JSON.stringify(payload) });
+        }
+
+        if (responseFormat === "json") {
+          const j = await resp.json();
+          log(`合成(JSON)成功: ${JSON.stringify(j)}`);
+          if (j.asset_id) {
+            $("mergeAssetIds").value = $("mergeAssetIds").value
+              ? `${$("mergeAssetIds").value},${j.asset_id}`
+              : j.asset_id;
+          }
+        } else {
+          const b = await resp.blob();
+          const url = URL.createObjectURL(b);
+          $("synAudioPlayer").src = url;
+          $("synAudioPlayer").play();
+          const aid = resp.headers.get("X-Asset-Id");
+          log(`合成(audio)成功, bytes=${b.size}${aid ? `, asset_id=${aid}` : ""}`);
+          if (aid) {
+            $("mergeAssetIds").value = $("mergeAssetIds").value
+              ? `${$("mergeAssetIds").value},${aid}`
+              : aid;
+          }
+        }
+        await refreshAssets();
+      } catch (e) {
+        log(`合成失败: ${e.message}`, "ERR");
+      }
+    }
+
+    async function createJob() {
+      try {
+        const payload = JSON.parse($("jobPayload").value);
+        const r = await apiFetch("/api/v2/jobs", { method: "POST", body: JSON.stringify(payload) });
+        const j = await r.json();
+        $("jobId").value = j.job_id;
+        log(`任务已提交: ${j.job_id}`);
+        await getJob();
+      } catch (e) {
+        log(`提交任务失败: ${e.message}`, "ERR");
+      }
+    }
+
+    function renderJobResults(results = []) {
+      const tbody = $("jobResultsTable").querySelector("tbody");
+      tbody.innerHTML = "";
+      for (const r of results) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td>${r.segment_index}</td><td>${r.voice_name || ""}</td><td class="mono">${r.asset_id || ""}</td>`;
+        tbody.appendChild(tr);
+      }
+    }
+
+    async function getJob() {
+      const id = $("jobId").value.trim();
+      if (!id) return log("请先填写 job_id", "WARN");
+      try {
+        const r = await apiFetch(`/api/v2/jobs/${encodeURIComponent(id)}`);
+        const j = await r.json();
+        $("jobStateText").textContent = `status: ${j.status}${j.error ? ` | error: ${j.error}` : ""}`;
+        renderJobResults(j.results || []);
+        if (j.merged_asset_id) {
+          log(`任务完成 merged_asset_id=${j.merged_asset_id}`);
+          $("mergeAssetIds").value = $("mergeAssetIds").value
+            ? `${$("mergeAssetIds").value},${j.merged_asset_id}`
+            : j.merged_asset_id;
+        } else {
+          log(`任务状态: ${j.status}`);
+        }
+      } catch (e) {
+        log(`查询任务失败: ${e.message}`, "ERR");
+      }
+    }
+
+    async function cancelJob() {
+      const id = $("jobId").value.trim();
+      if (!id) return log("请先填写 job_id", "WARN");
+      try {
+        await apiFetch(`/api/v2/jobs/${encodeURIComponent(id)}/cancel`, { method: "POST" });
+        log(`已请求取消任务: ${id}`);
+        await getJob();
+      } catch (e) {
+        log(`取消任务失败: ${e.message}`, "ERR");
+      }
+    }
+
+    async function retryJob() {
+      const id = $("jobId").value.trim();
+      if (!id) return log("请先填写 job_id", "WARN");
+      try {
+        const r = await apiFetch(`/api/v2/jobs/${encodeURIComponent(id)}/retry`, { method: "POST" });
+        const j = await r.json();
+        $("jobId").value = j.job_id;
+        log(`重试任务成功，新 job_id: ${j.job_id}`);
+        await getJob();
+      } catch (e) {
+        log(`重试任务失败: ${e.message}`, "ERR");
+      }
+    }
+
+    function togglePolling() {
+      if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+        $("togglePollBtn").textContent = "开始轮询";
+        log("已停止轮询");
+        return;
+      }
+      const ms = Math.max(500, Number($("pollMs").value || 2000));
+      pollTimer = setInterval(() => { getJob(); }, ms);
+      $("togglePollBtn").textContent = "停止轮询";
+      log(`已开始轮询，间隔 ${ms}ms`);
+    }
+
+    async function mergeAudio() {
+      const ids = $("mergeAssetIds").value
+        .split(",")
+        .map(s => s.trim())
+        .filter(Boolean);
+      if (!ids.length) return log("请输入 asset_ids", "WARN");
+      const payload = { asset_ids: ids };
+      const n = $("mergeOutputName").value.trim();
+      if (n) payload.output_name = n;
+      try {
+        const r = await apiFetch("/api/v2/merge", { method: "POST", body: JSON.stringify(payload) });
+        const j = await r.json();
+        log(`合并成功: ${j.asset_id}`);
+        await refreshAssets();
+      } catch (e) {
+        log(`合并失败: ${e.message}`, "ERR");
+      }
+    }
+
+    function bindEvents() {
+      $("saveCfgBtn").onclick = saveCfg;
+      $("healthBtn").onclick = checkHealth;
+
+      $("uploadAssetBtn").onclick = uploadAsset;
+      $("refreshAssetsBtn").onclick = refreshAssets;
+
+      $("createVoiceBtn").onclick = createVoice;
+      $("updateVoiceBtn").onclick = updateVoice;
+      $("getVoiceBtn").onclick = getVoice;
+      $("compileVoiceBtn").onclick = compileVoice;
+      $("deleteVoiceBtn").onclick = deleteVoice;
+      $("listVoicesBtn").onclick = listVoices;
+      $("refreshRefPickerBtn").onclick = renderRefAssetPicker;
+      $("clearRefIdsBtn").onclick = () => { setRefIds([]); };
+      $("voiceCharacter").oninput = () => { syncVoiceNameFromCharEmotion(); renderRefAssetPicker(); renderEmotionGroups(); };
+      $("voiceEmotion").oninput = () => { syncVoiceNameFromCharEmotion(); renderRefAssetPicker(); renderEmotionGroups(); };
+      $("voiceAutoName").onchange = () => { syncVoiceNameFromCharEmotion(); };
+      $("voiceRefAssetIds").oninput = () => { renderRefAssetPicker(); };
+
+      $("synthesizeBtn").onclick = synthesize;
+      $("refreshRoleSourcesBtn").onclick = discoverSavedRoles;
+      $("synVoiceSelect").onchange = () => {
+        const v = $("synVoiceSelect").value.trim();
+        if (v) {
+          $("synVoiceId").value = v;
+          log(`已选择角色: ${v}`);
+        }
+      };
+      $("fillFromVoiceBtn").onclick = () => {
+        $("synVoiceId").value = $("voiceName").value.trim();
+        $("synMode").value = $("voiceMode").value;
+        $("synPromptText").value = $("voicePromptText").value;
+        $("synPromptAssetId").value = $("voicePromptAssetId").value.trim();
+        $("synInstructText").value = $("voiceInstructText").value;
+        $("synCharacter").value = ($("voiceCharacter").value || "").trim();
+        $("synEmotion").value = ($("voiceEmotion").value || "").trim() || "default";
+        $("synSelectionPolicy").value = ($("voiceSelectionPolicy").value || "").trim();
+        log("已从 Voice 表单填充合成参数");
+      };
+
+      $("createJobBtn").onclick = createJob;
+      $("getJobBtn").onclick = getJob;
+      $("cancelJobBtn").onclick = cancelJob;
+      $("retryJobBtn").onclick = retryJob;
+      $("togglePollBtn").onclick = togglePolling;
+
+      $("mergeBtn").onclick = mergeAudio;
+
+      $("clearLogBtn").onclick = () => { logEl.textContent = ""; };
+    }
+
+    async function bootstrap() {
+      loadCfg();
+      bindEvents();
+      await checkHealth();
+      await Promise.all([refreshAssets(), listVoices()]);
+      await discoverSavedRoles();
+      log("控制台就绪");
+    }
+
+    bootstrap();
+  </script>
+</body>
+</html>

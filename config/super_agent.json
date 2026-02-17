@@ -1,0 +1,268 @@
+[
+  {
+    "name": "七七#default",
+    "character": "七七",
+    "emotion": "default",
+    "mode": "零样本复制",
+    "prompt_text": "生辰快乐。给，草药香囊。很惊讶吗？上次你告诉我的时候，我就记在纸上了。每天都看一遍的话，今后也不会忘记的…",
+    "instruct_text": "",
+    "color": "#7683c6",
+    "selection_policy": "random_per_text",
+    "prompt_audio": "C:\\Users\\lilei\\Desktop\\voice\\data\\assets\\audio\\ref_a69c7d53a515.wav",
+    "ref_asset_ids": [
+      "ref_a69c7d53a515"
+    ]
+  },
+  {
+    "name": "万叶#default",
+    "character": "万叶",
+    "emotion": "default",
+    "mode": "零样本复制",
+    "prompt_text": "飘摇风雨中，睹物思故乡，这把刀…是我与故乡唯一的联系了。",
+    "instruct_text": "",
+    "color": "#06b1bb",
+    "selection_policy": "random_per_text",
+    "prompt_audio": "C:\\Users\\lilei\\Desktop\\voice\\data\\assets\\audio\\ref_66c7f9ab6dd7.wav",
+    "ref_asset_ids": [
+      "ref_66c7f9ab6dd7"
+    ]
+  },
+  {
+    "name": "八重神子#default",
+    "character": "八重神子",
+    "emotion": "default",
+    "mode": "零样本复制",
+    "prompt_text": "嗯~伤脑筋，中午吃些什么呢？油豆腐吃腻了，想吃点清淡的。话说好久没见到社奉行家的小姑娘了，我们不如就去吃她做的点心吧。",
+    "instruct_text": "",
+    "color": "#889cfa",
+    "selection_policy": "random_per_text",
+    "prompt_audio": "C:\\Users\\lilei\\Desktop\\voice\\data\\assets\\audio\\ref_8a7fba589c9e.wav",
+    "ref_asset_ids": [
+      "ref_8a7fba589c9e"
+    ]
+  },
+  {
+    "name": "可莉#default",
+    "character": "可莉",
+    "emotion": "default",
+    "mode": "零样本复制",
+    "prompt_text": "西风骑士团，「火花骑士」，可莉，前来报到！…呃—后面该说什么词来着？可莉背不下来啦...",
+    "instruct_text": "",
+    "color": "#747884",
+    "selection_policy": "random_per_text",
+    "prompt_audio": "C:\\Users\\lilei\\Desktop\\voice\\data\\assets\\audio\\ref_7168ee75403a.wav",
+    "ref_asset_ids": [
+      "ref_7168ee75403a"
+    ]
+  },
+  {
+    "name": "夜兰#default",
+    "character": "夜兰",
+    "emotion": "default",
+    "mode": "零样本复制",
+    "prompt_text": "点数不错，今天就继续翘班吧，等到状态好了，再去把活一次干完。",
+    "instruct_text": "",
+    "color": "#79958f",
+    "selection_policy": "random_per_text",
+    "prompt_audio": "C:\\Users\\lilei\\Desktop\\voice\\data\\assets\\audio\\ref_7627b011216d.wav",
+    "ref_asset_ids": [
+      "ref_7627b011216d"
+    ]
+  },
+  {
+    "name": "星河#default",
+    "character": "星河",
+    "emotion": "default",
+    "mode": "零样本复制",
+    "prompt_text": "用专业一点的话讲，就是我的脚腕两边的筋髓骨全部都骨折了，然后",
+    "instruct_text": "",
+    "color": "#53db87",
+    "selection_policy": "random_per_text",
+    "ref_asset_ids": [
+      "ref_b87d044c04e5"
+    ],
+    "prompt_audio": "C:\\Users\\lilei\\Desktop\\voice\\data\\assets\\audio\\ref_b87d044c04e5.wav"
+  },
+  {
+    "name": "星河1#default",
+    "character": "星河1",
+    "emotion": "default",
+    "mode": "零样本复制",
+    "prompt_text": "用专业一点的话讲就是我的，脚腕两边的筋髓骨全部都骨折。然，就是，反正就是额，你脚腕两边的那个小的那种骨头全部都断了，然后就是额，我当时不是要打钢钉吗？就是做手术，然后我",
+    "instruct_text": "",
+    "color": "#55c668",
+    "selection_policy": "random_per_text",
+    "prompt_audio": "C:\\Users\\lilei\\Desktop\\voice\\data\\assets\\audio\\ref_b3ce9e8d3ce6.wav",
+    "ref_asset_ids": [
+      "ref_b3ce9e8d3ce6"
+    ]
+  },
+  {
+    "name": "纳西妲#default",
+    "character": "纳西妲",
+    "emotion": "default",
+    "mode": "零样本复制",
+    "prompt_text": "初次见面，我已经关注你很久了。我叫纳西妲，别看我像个孩子，我比任何一位大人都了解这个世界。所以，我可以用我的知识，换取你路上的见闻吗？",
+    "instruct_text": "",
+    "color": "#f8fef5",
+    "selection_policy": "random_per_text",
+    "prompt_audio": "C:\\Users\\lilei\\Desktop\\voice\\data\\assets\\audio\\ref_523688223361.wav",
+    "ref_asset_ids": [
+      "ref_523688223361"
+    ]
+  },
+  {
+    "name": "胡桃#calm",
+    "mode": "零样本复制",
+    "prompt_text": "我说白术，你不会看不出来吧？难不成你师父，忘了教你这门功夫？",
+    "instruct_text": "",
+    "ref_asset_ids": [
+      "ref_2e82a9d9dcbe"
+    ],
+    "selection_policy": "random_per_text",
+    "character": "胡桃",
+    "emotion": "calm",
+    "prompt_audio": "",
+    "color": "#FF6B6B"
+  },
+  {
+    "name": "胡桃#default",
+    "character": "胡桃",
+    "emotion": "default",
+    "mode": "零样本复制",
+    "prompt_text": "唷，找本堂主有何贵干呀？嗯？你不知道吗，往生堂第七十七代堂主就是胡桃我啦！嘶，不过瞧你的模样，容光焕发，身体健康，嗯…想必是为了工作以外的事来找我，对吧？",
+    "instruct_text": "",
+    "color": "#95e405",
+    "selection_policy": "random_per_text",
+    "prompt_audio": "C:\\Users\\lilei\\Desktop\\voice\\data\\assets\\audio\\ref_973b2cfa50b2.wav",
+    "ref_asset_ids": [
+      "ref_973b2cfa50b2"
+    ]
+  },
+  {
+    "name": "胡桃#disgust",
+    "mode": "零样本复制",
+    "prompt_text": "到我了吗…",
+    "instruct_text": "",
+    "ref_asset_ids": [
+      "ref_8a08f07efb14"
+    ],
+    "selection_policy": "random_per_text",
+    "character": "胡桃",
+    "emotion": "disgust",
+    "prompt_audio": "C:\\Users\\lilei\\Desktop\\voice\\data\\assets\\audio\\ref_8a08f07efb14.wav",
+    "color": "#FF6B6B"
+  },
+  {
+    "name": "胡桃#happy",
+    "mode": "零样本复制",
+    "prompt_text": "香菱可好玩了，一碰就跳，特别容易被唬住。做我们这行，最喜欢这种人喽。不过也得注意分寸，毕竟，锅巴会替香菱出头呢。",
+    "instruct_text": "",
+    "ref_asset_ids": [
+      "ref_f34316d0a78b"
+    ],
+    "selection_policy": "random_per_text",
+    "character": "胡桃",
+    "emotion": "happy",
+    "prompt_audio": "C:\\Users\\lilei\\Desktop\\voice\\data\\assets\\audio\\ref_f34316d0a78b.wav",
+    "color": "#FF6B6B"
+  },
+  {
+    "name": "胡桃#surprise",
+    "mode": "零样本复制",
+    "prompt_text": "哦？你不是向来防着我吗？这次倒挺大方。",
+    "instruct_text": "",
+    "ref_asset_ids": [
+      "ref_6e5d93499223"
+    ],
+    "selection_policy": "random_per_text",
+    "character": "胡桃",
+    "emotion": "surprise",
+    "prompt_audio": "C:\\Users\\lilei\\Desktop\\voice\\data\\assets\\audio\\ref_6e5d93499223.wav",
+    "color": "#FF6B6B"
+  },
+  {
+    "name": "芙宁娜#calm",
+    "mode": "零样本复制",
+    "prompt_text": "我还是先看这次的剧本质量再考虑啦，体验好的话我就加入。",
+    "instruct_text": "",
+    "ref_asset_ids": [
+      "ref_1ffc07d2cd95"
+    ],
+    "selection_policy": "random_per_text",
+    "character": "芙宁娜",
+    "emotion": "calm",
+    "prompt_audio": "C:\\Users\\lilei\\Desktop\\voice\\data\\assets\\audio\\ref_1ffc07d2cd95.wav",
+    "color": "#FF6B6B"
+  },
+  {
+    "name": "芙宁娜#default",
+    "character": "芙宁娜",
+    "emotion": "default",
+    "mode": "零样本复制",
+    "prompt_text": "毫无压力呢。",
+    "instruct_text": "",
+    "color": "#15efcc",
+    "selection_policy": "random_per_text",
+    "prompt_audio": "C:\\Users\\lilei\\Desktop\\voice\\data\\assets\\audio\\ref_8081002353d2.wav",
+    "ref_asset_ids": [
+      "ref_8081002353d2"
+    ]
+  },
+  {
+    "name": "芙宁娜#happy",
+    "mode": "零样本复制",
+    "prompt_text": "那就没什么问题了，我现在就着手剧本的修改。",
+    "instruct_text": "",
+    "ref_asset_ids": [
+      "ref_bea4d4fd9226"
+    ],
+    "selection_policy": "random_per_text",
+    "character": "芙宁娜",
+    "emotion": "happy",
+    "prompt_audio": "C:\\Users\\lilei\\Desktop\\voice\\data\\assets\\audio\\ref_bea4d4fd9226.wav",
+    "color": "#FF6B6B"
+  },
+  {
+    "name": "芙宁娜#sad",
+    "mode": "零样本复制",
+    "prompt_text": "我还是先看这次的剧本质量再考虑啦，体验好的话我就加入。",
+    "instruct_text": "",
+    "ref_asset_ids": [
+      "ref_77fde5fb5270"
+    ],
+    "selection_policy": "random_per_text",
+    "character": "芙宁娜",
+    "emotion": "sad",
+    "prompt_audio": "C:\\Users\\lilei\\Desktop\\voice\\data\\assets\\audio\\ref_77fde5fb5270.wav",
+    "color": "#FF6B6B"
+  },
+  {
+    "name": "钟离#default",
+    "character": "钟离",
+    "emotion": "default",
+    "mode": "零样本复制",
+    "prompt_text": "欲买桂花同载酒…只可惜故人，何日再见呢？",
+    "instruct_text": "",
+    "color": "#48ad4f",
+    "selection_policy": "random_per_text",
+    "prompt_audio": "C:\\Users\\lilei\\Desktop\\voice\\data\\assets\\audio\\ref_93487acfc01f.wav",
+    "ref_asset_ids": [
+      "ref_93487acfc01f"
+    ]
+  },
+  {
+    "name": "雷电将军#default",
+    "character": "雷电将军",
+    "emotion": "default",
+    "mode": "零样本复制",
+    "prompt_text": "无人相陪，此般花鸟余情，也不过衬托我身不移不变的背景罢了。",
+    "instruct_text": "",
+    "color": "#484fea",
+    "selection_policy": "random_per_text",
+    "prompt_audio": "C:\\Users\\lilei\\Desktop\\voice\\data\\assets\\audio\\ref_4588745b2e50.wav",
+    "ref_asset_ids": [
+      "ref_4588745b2e50"
+    ]
+  }
+]

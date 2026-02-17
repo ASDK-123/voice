@@ -1,0 +1,72 @@
+# -----------------------------
+# OS / Editor
+# -----------------------------
+.DS_Store
+Thumbs.db
+Desktop.ini
+.vscode/
+.idea/
+
+# -----------------------------
+# Python cache / test / build
+# -----------------------------
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+build/
+dist/
+*.egg-info/
+
+# -----------------------------
+# Local env / package manager
+# -----------------------------
+.pixi/
+.venv/
+venv/
+env/
+
+# -----------------------------
+# Runtime outputs
+# -----------------------------
+output/
+logs/
+*.log
+
+# -----------------------------
+# Local app config / secrets
+# -----------------------------
+app_config.json
+.env
+.env.*
+
+# -----------------------------
+# Model / media artifacts (very large)
+# -----------------------------
+pretrained_models/
+asset/
+data/
+*.pt
+*.pth
+*.onnx
+*.safetensors
+*.ckpt
+*.plan
+*.wav
+*.mp3
+*.flac
+*.ogg
+*.m4a
+
+# -----------------------------
+# Embedded repos / personal assets
+# -----------------------------
+third_party/Matcha-TTS/
+peiying/
+

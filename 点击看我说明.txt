@@ -1,0 +1,15 @@
+V1.4更新 解决issue区#3 #4提到的模型下载问题,以及更多语气标签的问题,然后更新了api服务,现在已经支持酒馆的tts服务,并且支持通过油猴脚本对接pixiv和爱丽丝书屋等小说网站实现浏览器内直接朗读功能,具体可以看readme里面的更新日志和油猴脚本的链接,另外更新了一大波ui界面交互细节,比如列宽拖动,日志主题适配等,提升用户体验,现在任务计划页面可以直接导出当前任务计划为json文件,方便备份和迁移,并且支持任务计划页面的内容修改(无需再进文本编辑模式修改了) 可以说现在有任务计划页面也可以实现各种批量生成的功能了
+
+V1.3 更新,阿里巴巴开源了cosyvoice3,肯定要更新一下了,直接把cosyvoice2升级到cosyvoice3,语音语气是实打实的提升
+考虑到预训练模型的大小,这个版本发布两个版本的包,一个是下载好cosyvoice3和wetext模型的版本,体积较大,上传到百度网盘里,另外一个是不带预训练大模型的版本,我上传到github release里面,用户可以自行双击download_all_models.bat从huggingface/modelscope下载模型(国内用户推荐使用modelscope) 除开这个版本以后的版本不再考虑打包pretrained_models模型进去,只保留代码+环境,节省体积,另外cosyvoice3-0.5b版本新增了x-transformer架构的使用,又给里面塞了modelscope的包进去,python环境包体积可能会变大一点
+
+V1.2更新 代码环境更新到了torch2.7.0+cuda12.8版本 按理说50系显卡也可以跑了,
+删掉了大模型文件夹下面一些用不上的东西,整体压缩后的体积应该会变小一点,还有一些其他的优化,可以看仓库的readme.md知晓
+
+-----------------------------
+之前已经下载CosyVoiceDesktop.7z的同志们遇到了
+No module named 'PIL'
+可以尝试将site-packages.zip文件解压到CosyVoiceGUI\python_env\Lib\site-packages目录下
+然后再去启动bat程序
+
+对于新来的同志们可以直接下载CosyVoiceDesktop_V1.1.7z 那里面我把PIL模块整合进去了然后同时删减了一些不必要的文件确保解压后占用的磁盘空间更少
