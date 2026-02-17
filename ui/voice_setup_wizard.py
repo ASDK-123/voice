@@ -149,6 +149,38 @@ class VoiceSetupWizardDialog(QDialog):
             parent=self,
         )
 
+    @staticmethod
+    def _with_advice(message: str, advice: str = "") -> str:
+        msg = str(message or "").strip()
+        if not msg:
+            return advice or "未知错误"
+        if advice and "建议：" not in msg:
+            return f"{msg}。建议：{advice}"
+        return msg
+
+    def _begin_button_busy(self, btn: PushButton, busy_text: str) -> bool:
+        try:
+            if bool(btn.property("_busy")):
+                return False
+            if btn.property("_idle_text") is None:
+                btn.setProperty("_idle_text", btn.text())
+            btn.setProperty("_busy", True)
+            btn.setEnabled(False)
+            btn.setText(str(busy_text))
+            return True
+        except Exception:
+            return False
+
+    def _end_button_busy(self, btn: PushButton, *, enabled: bool = True):
+        try:
+            idle = btn.property("_idle_text")
+            if idle is not None:
+                btn.setText(str(idle))
+            btn.setEnabled(bool(enabled))
+            btn.setProperty("_busy", False)
+        except Exception:
+            pass
+
     def _run(self, fn, on_ok, on_err):
         w = _Worker(fn)
         self._workers.append(w)
@@ -624,6 +656,8 @@ class VoiceSetupWizardDialog(QDialog):
 
     # -------- Step1 --------
     def _check_health(self):
+        if not self._begin_button_busy(self.btn_check, "检查中..."):
+            return
         self.health_status.setText("状态：正在检查...")
 
         def _do():
@@ -636,8 +670,13 @@ class VoiceSetupWizardDialog(QDialog):
             self.health_status.setText(f"状态：API 可用（{st}），模型已加载={model_loaded}")
             if not model_loaded:
                 self._toast_warn("提示", "检测到模型未加载。你仍可继续填写，但编译/合成需要先加载模型。")
+            self._end_button_busy(self.btn_check)
 
-        self._run(_do, _ok, lambda m: self._toast_err("连接失败", m))
+        def _err(msg: str):
+            self._toast_err("连接失败", self._with_advice(msg, "请先启动 API 服务，并确认端口配置正确。"))
+            self._end_button_busy(self.btn_check)
+
+        self._run(_do, _ok, _err)
 
     def _start_api(self):
         try:
@@ -674,6 +713,9 @@ class VoiceSetupWizardDialog(QDialog):
         lang = (self.state.language or "zh").strip() or "zh"
         note = (self.edit_note.text() or "").strip()
         self.state.note = note
+        if not self._begin_button_busy(self.btn_upload, "上传中..."):
+            return
+        self.btn_pick_file.setEnabled(False)
 
         def _do():
             cli = self._client_factory()
@@ -683,19 +725,30 @@ class VoiceSetupWizardDialog(QDialog):
             aid = str((meta or {}).get("asset_id") or "").strip()
             if not aid:
                 self._toast_err("上传失败", "未返回 asset_id")
+                self._end_button_busy(self.btn_upload)
+                self.btn_pick_file.setEnabled(True)
                 return
             self.state.asset_id = aid
             self.label_asset.setText(f"asset_id：{aid}")
             self.btn_play.setEnabled(True)
             self._toast_ok("上传成功", f"asset_id={aid}")
             self._refresh_next_enabled()
+            self._end_button_busy(self.btn_upload)
+            self.btn_pick_file.setEnabled(True)
 
-        self._run(_do, _ok, lambda m: self._toast_err("上传失败", m))
+        def _err(msg: str):
+            self._toast_err("上传失败", self._with_advice(msg, "确认音频格式为 wav/mp3/flac 且 API 服务在线。"))
+            self._end_button_busy(self.btn_upload)
+            self.btn_pick_file.setEnabled(True)
+
+        self._run(_do, _ok, _err)
 
     def _play_uploaded(self):
         aid = (self.state.asset_id or "").strip()
         if not aid:
             self._toast_err("提示", "请先上传参考音频")
+            return
+        if not self._begin_button_busy(self.btn_play, "下载中..."):
             return
 
         def _do():
@@ -712,8 +765,14 @@ class VoiceSetupWizardDialog(QDialog):
                 self.media_player.play()
             except Exception as e:
                 self._toast_err("试听失败", str(e))
+            finally:
+                self._end_button_busy(self.btn_play)
 
-        self._run(_do, _ok, lambda m: self._toast_err("试听失败", m))
+        def _err(msg: str):
+            self._toast_err("试听失败", self._with_advice(msg, "稍后重试，或检查该 asset 是否仍可访问。"))
+            self._end_button_busy(self.btn_play)
+
+        self._run(_do, _ok, _err)
 
     # -------- Step4 --------
     def _save_voice(self):
@@ -752,11 +811,14 @@ class VoiceSetupWizardDialog(QDialog):
             cli = self._client_factory()
             return cli.create_voice(voice)
 
+        if not self._begin_button_busy(self.btn_save_voice, "保存中..."):
+            return
+
         def _ok(_res: dict):
             self.state.voice_saved = True
             self.label_saved.setText(f"状态：已保存（{vid}）")
             self._toast_ok("保存成功", f"voice_id={vid}")
-            self.btn_save_voice.setEnabled(True)
+            self._end_button_busy(self.btn_save_voice)
             self._refresh_next_enabled()
 
         def _err_exc(e: object):
@@ -772,25 +834,23 @@ class VoiceSetupWizardDialog(QDialog):
                     self.state.voice_saved = True
                     self.label_saved.setText(f"状态：已更新（{vid}）")
                     self._toast_ok("更新成功", f"voice_id={vid}")
-                    self.btn_save_voice.setEnabled(True)
+                    self._end_button_busy(self.btn_save_voice)
                     self._refresh_next_enabled()
 
                 def _err_update(msg: str):
-                    self.btn_save_voice.setEnabled(True)
-                    self._toast_err("更新失败", msg)
+                    self._end_button_busy(self.btn_save_voice)
+                    self._toast_err("更新失败", self._with_advice(msg, "检查 voice 配置字段后重试。"))
 
                 self._run(_do_update, _ok_update, _err_update)
                 return
 
             # Normal error path
-            self.btn_save_voice.setEnabled(True)
+            self._end_button_busy(self.btn_save_voice)
             if isinstance(e, V2HttpError):
-                self._toast_err("保存失败", e.short())
+                self._toast_err("保存失败", self._with_advice(e.short(), "如果同名冲突可直接重试，系统会尝试覆盖更新。"))
             else:
-                self._toast_err("保存失败", str(e))
+                self._toast_err("保存失败", self._with_advice(str(e), "检查 API 状态与字段完整性后重试。"))
 
-        # Prevent double click -> duplicate requests -> confusing errors and instability.
-        self.btn_save_voice.setEnabled(False)
         self._run_ex(_do, _ok, _err_exc)
 
     # -------- Step5 --------
@@ -798,6 +858,8 @@ class VoiceSetupWizardDialog(QDialog):
         vid = self.state.voice_id()
         if not vid:
             self._toast_err("提示", "voice_id 为空")
+            return
+        if not self._begin_button_busy(self.btn_compile, "编译中..."):
             return
 
         def _do():
@@ -807,8 +869,13 @@ class VoiceSetupWizardDialog(QDialog):
         def _ok(res: dict):
             compiled = (res or {}).get("compiled") if isinstance(res, dict) else None
             self._toast_ok("编译完成", f"compiled={compiled}" if compiled else "编译完成")
+            self._end_button_busy(self.btn_compile)
 
-        self._run(_do, _ok, lambda m: self._toast_err("编译失败", m))
+        def _err(msg: str):
+            self._toast_err("编译失败", self._with_advice(msg, "确认该 voice 已保存且 API 在线。"))
+            self._end_button_busy(self.btn_compile)
+
+        self._run(_do, _ok, _err)
 
     def _synthesize(self):
         vid = self.state.voice_id()
@@ -820,6 +887,8 @@ class VoiceSetupWizardDialog(QDialog):
             self._toast_err("提示", "请输入测试文本")
             return
         self.state.test_text = text
+        if not self._begin_button_busy(self.btn_synth, "合成中..."):
+            return
 
         req = {
             "text": text,
@@ -845,8 +914,14 @@ class VoiceSetupWizardDialog(QDialog):
                 self._toast_ok("合成成功", "已生成测试音频，可点击“播放输出”")
             except Exception as e:
                 self._toast_err("保存失败", str(e))
+            finally:
+                self._end_button_busy(self.btn_synth)
 
-        self._run(_do, _ok, lambda m: self._toast_err("合成失败", m))
+        def _err(msg: str):
+            self._toast_err("合成失败", self._with_advice(msg, "先编译 voice，再缩短测试文本重试。"))
+            self._end_button_busy(self.btn_synth)
+
+        self._run(_do, _ok, _err)
 
     def _play_output(self):
         p = getattr(self, "_last_out_path", "") or ""

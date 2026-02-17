@@ -88,6 +88,7 @@ class EmotionAssetsPanel(QWidget):
         self._play_state_by_asset: Dict[str, str] = {}
         self._ref_asset_ids: List[str] = []
         self._manage_voice_binding_locally = False
+        self._refresh_busy = False
 
         self._tmp_dir = os.path.abspath("./data/ui_tmp")
         os.makedirs(self._tmp_dir, exist_ok=True)
@@ -197,6 +198,29 @@ class EmotionAssetsPanel(QWidget):
         # Cleanup only after thread fully exits; avoids QThread destroyed-while-running race.
         w.finished.connect(_cleanup)
         w.start()
+
+    def _begin_button_busy(self, btn: PushButton, busy_text: str) -> bool:
+        try:
+            if bool(btn.property("_busy")):
+                return False
+            if btn.property("_idle_text") is None:
+                btn.setProperty("_idle_text", btn.text())
+            btn.setProperty("_busy", True)
+            btn.setEnabled(False)
+            btn.setText(str(busy_text))
+            return True
+        except Exception:
+            return False
+
+    def _end_button_busy(self, btn: PushButton, *, enabled: bool = True):
+        try:
+            idle = btn.property("_idle_text")
+            if idle is not None:
+                btn.setText(str(idle))
+            btn.setEnabled(bool(enabled))
+            btn.setProperty("_busy", False)
+        except Exception:
+            pass
 
     def _set_enabled(self, enabled: bool):
         for w in [
@@ -462,12 +486,26 @@ class EmotionAssetsPanel(QWidget):
             self.asset_table.setRowCount(0)
             self.assets_stats_changed.emit(0, 0)
             return
+        if self._refresh_busy:
+            return
+        self._refresh_busy = True
+        self.asset_table.setEnabled(False)
 
         def _do():
             cli = self._client()
             return cli.list_assets(character=self.character, emotion=self.emotion, language="", kind="ref")
 
-        self._run(_do, self._set_assets_table, lambda m: self._toast_err("加载 assets 失败", m))
+        def _ok(items: List[dict]):
+            self._refresh_busy = False
+            self.asset_table.setEnabled(True)
+            self._set_assets_table(items)
+
+        def _err(msg: str):
+            self._refresh_busy = False
+            self.asset_table.setEnabled(True)
+            self._toast_err("加载 assets 失败", msg)
+
+        self._run(_do, _ok, _err)
 
     def _set_assets_table(self, items: List[dict]):
         src_items = [dict(it) for it in (items or []) if isinstance(it, dict)]
@@ -703,6 +741,9 @@ class EmotionAssetsPanel(QWidget):
         if not fp or not os.path.exists(fp):
             self._toast_warn("提示", "请先选择要上传的音频文件")
             return
+        if not self._begin_button_busy(self.upload_btn, "上传中..."):
+            return
+        self.choose_file_btn.setEnabled(False)
         lang = str(self.lang_combo.currentText() or "zh").strip() or "zh"
         note = (self.note_edit.text() or "").strip()
 
@@ -738,8 +779,15 @@ class EmotionAssetsPanel(QWidget):
                 else:
                     self.ref_pool_changed.emit(self.voice_id, res.get("ref_asset_ids") or [])
                     self.refresh_assets()
+            self._end_button_busy(self.upload_btn)
+            self.choose_file_btn.setEnabled(True)
 
-        self._run(_do, _ok, lambda m: self._toast_err("上传失败", m))
+        def _err(msg: str):
+            self._toast_err("上传失败", msg)
+            self._end_button_busy(self.upload_btn)
+            self.choose_file_btn.setEnabled(True)
+
+        self._run(_do, _ok, _err)
 
     def save_selected_asset_note(self):
         aid = (self._selected_asset_id or "").strip()
@@ -754,6 +802,8 @@ class EmotionAssetsPanel(QWidget):
         if not note:
             self._toast_warn("提示", "备注不能为空")
             return
+        if not self._begin_button_busy(self.save_note_btn, "保存中..."):
+            return
 
         def _do():
             cli = self._client()
@@ -762,8 +812,13 @@ class EmotionAssetsPanel(QWidget):
         def _ok(_):
             self._toast_ok("已保存备注", aid)
             self.refresh_assets()
+            self._end_button_busy(self.save_note_btn)
 
-        self._run(_do, _ok, lambda m: self._toast_err("保存备注失败", m))
+        def _err(msg: str):
+            self._toast_err("保存备注失败", msg)
+            self._end_button_busy(self.save_note_btn)
+
+        self._run(_do, _ok, _err)
 
     def _set_play_state(self, asset_id: str, state: str):
         aid = str(asset_id or "").strip()
@@ -890,6 +945,9 @@ class EmotionAssetsPanel(QWidget):
         if not aids:
             self._toast_warn("提示", "请先选择要绑定的 asset")
             return
+        if not self._begin_button_busy(self.bind_btn, "绑定中..."):
+            return
+        self.unbind_btn.setEnabled(False)
 
         def _do():
             if self._manage_voice_binding_locally:
@@ -913,8 +971,15 @@ class EmotionAssetsPanel(QWidget):
             else:
                 self.ref_pool_changed.emit(self.voice_id, cur or [])
                 self.refresh_assets()
+            self._end_button_busy(self.bind_btn)
+            self.unbind_btn.setEnabled(True)
 
-        self._run(_do, _ok, lambda m: self._toast_err("绑定失败", m))
+        def _err(msg: str):
+            self._toast_err("绑定失败", msg)
+            self._end_button_busy(self.bind_btn)
+            self.unbind_btn.setEnabled(True)
+
+        self._run(_do, _ok, _err)
 
     def unbind_selected_assets(self):
         if not self.voice_id:
@@ -924,6 +989,9 @@ class EmotionAssetsPanel(QWidget):
         if not aids:
             self._toast_warn("提示", "请先选择要解绑的 asset")
             return
+        if not self._begin_button_busy(self.unbind_btn, "解绑中..."):
+            return
+        self.bind_btn.setEnabled(False)
 
         def _do():
             if self._manage_voice_binding_locally:
@@ -945,8 +1013,15 @@ class EmotionAssetsPanel(QWidget):
             else:
                 self.ref_pool_changed.emit(self.voice_id, cur or [])
                 self.refresh_assets()
+            self._end_button_busy(self.unbind_btn)
+            self.bind_btn.setEnabled(True)
 
-        self._run(_do, _ok, lambda m: self._toast_err("解绑失败", m))
+        def _err(msg: str):
+            self._toast_err("解绑失败", msg)
+            self._end_button_busy(self.unbind_btn)
+            self.bind_btn.setEnabled(True)
+
+        self._run(_do, _ok, _err)
 
     def _shutdown_workers(self, wait_ms: int = 8000):
         for w in list(self._workers):
