@@ -166,11 +166,6 @@ class VoiceSettingsInterface(QWidget):
         header.setSectionResizeMode(4, QHeaderView.Interactive)
         header.setSectionResizeMode(5, QHeaderView.ResizeToContents)
         header.setMinimumSectionSize(56)
-        self.table.setColumnWidth(0, 220)
-        self.table.setColumnWidth(3, 220)
-        self.table.setColumnWidth(4, 220)
-        self.table.setColumnWidth(1, 120)
-        self.table.setColumnWidth(5, 74)
 
         self.table.verticalHeader().setVisible(False)
         try:
@@ -266,6 +261,7 @@ class VoiceSettingsInterface(QWidget):
 
         layout.addLayout(button_layout)
         self._apply_page_styles()
+        self._apply_table_column_strategy(width_hint=self.width(), compact=False)
         self._update_v2_path_label()
 
         # Default load: v2 voices config (single source of truth).
@@ -280,11 +276,11 @@ class VoiceSettingsInterface(QWidget):
             self._set_inspector_visible(True, reason="init_restore")
 
     def build_top_toolbar(self) -> QWidget:
-        bar = QWidget(self)
-        bar.setObjectName("voiceSettingsTopToolbar")
-        l = QHBoxLayout(bar)
-        l.setContentsMargins(Spacing.MD, Spacing.SM, Spacing.MD, Spacing.SM)
-        l.setSpacing(Spacing.SM)
+        bar, l = self._build_strip_container(
+            "voiceSettingsTopToolbar",
+            (Spacing.MD, Spacing.SM, Spacing.MD, Spacing.SM),
+            Spacing.SM,
+        )
 
         title = SubtitleLabel("语音设置")
         l.addWidget(title)
@@ -296,17 +292,14 @@ class VoiceSettingsInterface(QWidget):
         self.character_filter_combo.currentTextChanged.connect(self.on_character_filter_changed)
         l.addWidget(self.character_filter_combo)
 
-        self.group_count_label = BodyLabel("0 角色")
-        self.group_count_label.setStyleSheet(f"color: {Palette.TEXT_SECONDARY};")
+        self.group_count_label = self._make_secondary_label("0 角色")
         l.addWidget(self.group_count_label)
         l.addStretch()
 
-        self.refs_summary_label = BodyLabel("参考池：-")
-        self.refs_summary_label.setStyleSheet(f"color: {Palette.TEXT_SECONDARY};")
+        self.refs_summary_label = self._make_secondary_label("参考池：-")
         l.addWidget(self.refs_summary_label)
 
-        self.main_ref_status_label = BodyLabel("主参考：-")
-        self.main_ref_status_label.setStyleSheet(f"color: {Palette.TEXT_SECONDARY};")
+        self.main_ref_status_label = self._make_secondary_label("主参考：-")
         l.addWidget(self.main_ref_status_label)
         l.addSpacing(Spacing.SM)
 
@@ -333,16 +326,14 @@ class VoiceSettingsInterface(QWidget):
         return bar
 
     def build_status_strip(self) -> QWidget:
-        strip = QWidget(self)
-        strip.setObjectName("voiceSettingsStatusStrip")
-        l = QHBoxLayout(strip)
-        l.setContentsMargins(Spacing.MD, Spacing.XS, Spacing.MD, Spacing.XS)
-        l.setSpacing(Spacing.SM)
+        strip, l = self._build_strip_container(
+            "voiceSettingsStatusStrip",
+            (Spacing.MD, Spacing.XS, Spacing.MD, Spacing.XS),
+            Spacing.SM,
+        )
         l.addWidget(BodyLabel("v2 配置"))
 
-        self.v2_path_label = BodyLabel("<未设置>")
-        self.v2_path_label.setStyleSheet(f"color: {Palette.TEXT_SECONDARY};")
-        self.v2_path_label.setWordWrap(False)
+        self.v2_path_label = self._make_secondary_label("<未设置>")
         l.addWidget(self.v2_path_label, 1)
 
         self.path_toggle_btn = ToolButton(FluentIcon.MORE)
@@ -356,9 +347,7 @@ class VoiceSettingsInterface(QWidget):
         l.addWidget(self.copy_path_btn)
 
         l.addSpacing(Spacing.SM)
-        self.api_status_label = BodyLabel("API：检测中")
-        self.api_status_label.setStyleSheet(f"color: {Palette.TEXT_SECONDARY};")
-        self.api_status_label.setWordWrap(False)
+        self.api_status_label = self._make_secondary_label("API：检测中")
         l.addWidget(self.api_status_label)
 
         self.api_status_refresh_btn = ToolButton(FluentIcon.SYNC)
@@ -367,9 +356,7 @@ class VoiceSettingsInterface(QWidget):
         l.addWidget(self.api_status_refresh_btn)
 
         l.addSpacing(Spacing.SM)
-        self.selected_ref_label = BodyLabel("当前选中参考音频：<无>")
-        self.selected_ref_label.setStyleSheet(f"color: {Palette.TEXT_SECONDARY};")
-        self.selected_ref_label.setWordWrap(False)
+        self.selected_ref_label = self._make_secondary_label("当前选中参考音频：<无>")
         l.addWidget(self.selected_ref_label, 1)
         return strip
     
@@ -459,6 +446,67 @@ class VoiceSettingsInterface(QWidget):
                 w.setFixedHeight(Metrics.CONTROL_H)
             except Exception:
                 pass
+
+    def _build_strip_container(self, object_name: str, margins: Tuple[int, int, int, int], spacing: int) -> Tuple[QWidget, QHBoxLayout]:
+        widget = QWidget(self)
+        widget.setObjectName(object_name)
+        layout = QHBoxLayout(widget)
+        layout.setContentsMargins(*margins)
+        layout.setSpacing(int(spacing))
+        return widget, layout
+
+    def _make_secondary_label(self, text: str, *, word_wrap: bool = False) -> BodyLabel:
+        label = BodyLabel(text)
+        label.setStyleSheet(f"color: {Palette.TEXT_SECONDARY};")
+        label.setWordWrap(bool(word_wrap))
+        return label
+
+    @staticmethod
+    def _clamp(v: int, lo: int, hi: int) -> int:
+        return max(int(lo), min(int(hi), int(v)))
+
+    def _table_available_width(self, width_hint: int = 0) -> int:
+        # Prefer splitter's left pane width to reflect whether refs panel is open.
+        try:
+            if hasattr(self, "main_splitter"):
+                sizes = self.main_splitter.sizes()
+                if sizes and len(sizes) >= 1 and int(sizes[0]) > 0:
+                    return max(640, int(sizes[0]) - 24)
+        except Exception:
+            pass
+        try:
+            view_w = int(self.table.viewport().width())
+            if view_w > 0:
+                return max(640, view_w)
+        except Exception:
+            pass
+        if width_hint and int(width_hint) > 0:
+            return max(640, int(width_hint) - 60)
+        return 960
+
+    def _apply_table_column_strategy(self, *, width_hint: int = 0, compact: Optional[bool] = None):
+        compact_mode = bool(self.is_compact_mode if compact is None else compact)
+        avail = self._table_available_width(width_hint=width_hint)
+
+        # Keep key columns readable on 1280 while allowing narrower compact mode.
+        if compact_mode:
+            name_w = self._clamp(int(avail * 0.26), 170, 230)
+            mode_w = self._clamp(int(avail * 0.11), 92, 120)
+            main_ref_w = self._clamp(int(avail * 0.24), 150, 210)
+            instruct_w = self._clamp(int(avail * 0.20), 150, 200)
+            color_w = 56
+        else:
+            name_w = self._clamp(int(avail * 0.25), 210, 320)
+            mode_w = self._clamp(int(avail * 0.11), 100, 140)
+            main_ref_w = self._clamp(int(avail * 0.22), 190, 300)
+            instruct_w = self._clamp(int(avail * 0.20), 170, 280)
+            color_w = 74
+
+        self.table.setColumnWidth(0, name_w)
+        self.table.setColumnWidth(1, mode_w)
+        self.table.setColumnWidth(3, main_ref_w)
+        self.table.setColumnWidth(4, instruct_w)
+        self.table.setColumnWidth(5, color_w)
 
     def _apply_page_styles(self):
         self.setStyleSheet(
@@ -567,15 +615,12 @@ class VoiceSettingsInterface(QWidget):
                 out.add(idx)
         return out
 
-    def _apply_compact_columns(self, compact: bool):
+    def _apply_compact_columns(self, compact: bool, width_hint: int = 0):
         hidden_set = self._compact_hidden_column_indexes()
         for col in range(self.table.columnCount()):
             should_hide = bool(compact and col in hidden_set)
             self.table.setColumnHidden(col, should_hide)
-        self.table.setColumnWidth(5, 56 if compact else 74)
-        self.table.setColumnWidth(0, 210 if compact else 220)
-        self.table.setColumnWidth(3, 200 if compact else 220)
-        self.table.setColumnWidth(4, 180 if compact else 220)
+        self._apply_table_column_strategy(width_hint=width_hint, compact=compact)
 
     def _should_force_collapse_inspector(self, total_width: int) -> bool:
         if not bool(self._auto_collapse_inspector):
@@ -950,6 +995,7 @@ class VoiceSettingsInterface(QWidget):
                 self._refs_panel_width = int(sizes[1])
                 self._refs_panel_width = max(Metrics.INSPECTOR_W_MIN, min(Metrics.INSPECTOR_W_MAX, self._refs_panel_width))
                 self.config_manager.set("ui_voice_settings_refs_panel_width", self._refs_panel_width)
+                self._apply_table_column_strategy(width_hint=int(sizes[0]), compact=self.is_compact_mode)
         except Exception:
             pass
 
@@ -1192,7 +1238,7 @@ class VoiceSettingsInterface(QWidget):
         force_collapse = self._should_force_collapse_inspector(width)
         compact = width < int(self._compact_breakpoint_px) or force_collapse
         changed_mode = compact != bool(self.is_compact_mode)
-        self._apply_compact_columns(compact)
+        self._apply_compact_columns(compact, width_hint=width)
         if compact:
             self.manage_refs_btn.setVisible(False)
             self.open_inspector_btn.setVisible(True)
@@ -1219,6 +1265,8 @@ class VoiceSettingsInterface(QWidget):
                 self._set_inspector_visible(True, reason="compact_restore")
         if changed_mode:
             self.update_table()
+        else:
+            self._apply_table_column_strategy(width_hint=width, compact=False)
 
     def _voice_parts_by_source_index(self, source_idx: int) -> Tuple[str, str, str]:
         if not (0 <= source_idx < len(self.voice_configs)):
