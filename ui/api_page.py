@@ -783,8 +783,9 @@ class APIPageInterface(QWidget):
         try:
             # 获取所有角色配置
             voice_configs = self.main_window.voice_interface.get_voice_configs()
-        except:
+        except Exception as e:
             voice_configs = {}
+            self.log_received.emit(f"[WARN] 读取 voice 配置失败，使用空配置: {e}")
         
         for row, voice in enumerate(characters):
             if not isinstance(voice, dict):

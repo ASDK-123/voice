@@ -614,7 +614,8 @@ class TaskPlanInterface(QWidget):
         if not os.path.exists(default_dir):
             try:
                 os.makedirs(default_dir, exist_ok=True)
-            except:
+            except OSError as e:
+                self.add_log(f"[WARN] 创建默认保存目录失败，回退到输出目录: {e}")
                 default_dir = self.output_dir
         
         file_path, _ = QFileDialog.getSaveFileName(self, "保存任务计划", default_dir, "JSON Files (*.json)")

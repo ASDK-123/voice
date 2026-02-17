@@ -6,6 +6,9 @@ from qfluentwidgets import (
 from core.config_manager import ConfigManager
 from .theme.tokens import Palette, Typography
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 class SettingsInterface(QWidget):
     """设置界面 - 现在包含侧边栏内容"""
@@ -208,5 +211,5 @@ class SettingsInterface(QWidget):
         try:
             from core import api
             api.set_min_text_length(value)
-        except:
-            pass
+        except Exception as e:
+            logger.warning("set_min_text_length failed: %s", e)
