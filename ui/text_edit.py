@@ -1,14 +1,13 @@
 from typing import Dict, List, Tuple, Optional
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QMenu, QApplication, QAction
+    QWidget, QVBoxLayout, QHBoxLayout
 )
 from PyQt5.QtCore import Qt, QPoint
 from PyQt5.QtGui import QTextCursor, QTextCharFormat, QColor
 
 from qfluentwidgets import (
     PushButton, PrimaryPushButton, TextEdit, SubtitleLabel,
-    BodyLabel, SimpleCardWidget, FluentIcon, InfoBar, InfoBarPosition,
-    RoundMenu, Action
+    BodyLabel, SimpleCardWidget, FluentIcon, RoundMenu, Action
 )
 
 from core.config_manager import ConfigManager

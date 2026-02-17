@@ -1,7 +1,7 @@
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFileDialog, QLineEdit
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QFileDialog, QLineEdit
 from qfluentwidgets import (
-    ComboBox, SwitchButton, SpinBox, SubtitleLabel, BodyLabel, 
-    setTheme, Theme, PushButton, ScrollArea, LineEdit
+    SwitchButton, SpinBox, SubtitleLabel, BodyLabel, 
+    PushButton, LineEdit
 )
 from core.config_manager import ConfigManager
 from .theme.tokens import Palette, Typography

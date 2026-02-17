@@ -276,88 +276,88 @@ class VoiceSettingsInterface(QWidget):
             self._set_inspector_visible(True, reason="init_restore")
 
     def build_top_toolbar(self) -> QWidget:
-        bar, l = self._build_strip_container(
+        bar, layout = self._build_strip_container(
             "voiceSettingsTopToolbar",
             (Spacing.MD, Spacing.SM, Spacing.MD, Spacing.SM),
             Spacing.SM,
         )
 
         title = SubtitleLabel("语音设置")
-        l.addWidget(title)
-        l.addSpacing(Spacing.SM)
-        l.addWidget(BodyLabel("角色分组"))
+        layout.addWidget(title)
+        layout.addSpacing(Spacing.SM)
+        layout.addWidget(BodyLabel("角色分组"))
 
         self.character_filter_combo = ComboBox(self)
         self.character_filter_combo.setMinimumWidth(220)
         self.character_filter_combo.currentTextChanged.connect(self.on_character_filter_changed)
-        l.addWidget(self.character_filter_combo)
+        layout.addWidget(self.character_filter_combo)
 
         self.group_count_label = self._make_secondary_label("0 角色")
-        l.addWidget(self.group_count_label)
-        l.addStretch()
+        layout.addWidget(self.group_count_label)
+        layout.addStretch()
 
         self.refs_summary_label = self._make_secondary_label("参考池：-")
-        l.addWidget(self.refs_summary_label)
+        layout.addWidget(self.refs_summary_label)
 
         self.main_ref_status_label = self._make_secondary_label("主参考：-")
-        l.addWidget(self.main_ref_status_label)
-        l.addSpacing(Spacing.SM)
+        layout.addWidget(self.main_ref_status_label)
+        layout.addSpacing(Spacing.SM)
 
         self.manage_refs_btn = PushButton("管理参考音频")
         self.manage_refs_btn.setIcon(FluentIcon.LINK)
         self.manage_refs_btn.clicked.connect(self.open_refs_sheet_for_current_row)
-        l.addWidget(self.manage_refs_btn)
+        layout.addWidget(self.manage_refs_btn)
 
         self.open_inspector_btn = PushButton("打开参考面板")
         self.open_inspector_btn.setIcon(FluentIcon.LINK)
         self.open_inspector_btn.setVisible(False)
         self.open_inspector_btn.clicked.connect(self.open_refs_sheet_for_current_row)
-        l.addWidget(self.open_inspector_btn)
+        layout.addWidget(self.open_inspector_btn)
 
         self.edit_mode_btn = PushButton("进入编辑模式")
         self.edit_mode_btn.setIcon(FluentIcon.EDIT)
         self.edit_mode_btn.setToolTip("浏览模式下不会修改任何字段。")
         self.edit_mode_btn.clicked.connect(self.toggle_edit_mode)
-        l.addWidget(self.edit_mode_btn)
+        layout.addWidget(self.edit_mode_btn)
 
         self.tools_btn = PushButton("工具")
         self.tools_btn.clicked.connect(self.show_tools_menu)
-        l.addWidget(self.tools_btn)
+        layout.addWidget(self.tools_btn)
         return bar
 
     def build_status_strip(self) -> QWidget:
-        strip, l = self._build_strip_container(
+        strip, layout = self._build_strip_container(
             "voiceSettingsStatusStrip",
             (Spacing.MD, Spacing.XS, Spacing.MD, Spacing.XS),
             Spacing.SM,
         )
-        l.addWidget(BodyLabel("v2 配置"))
+        layout.addWidget(BodyLabel("v2 配置"))
 
         self.v2_path_label = self._make_secondary_label("<未设置>")
-        l.addWidget(self.v2_path_label, 1)
+        layout.addWidget(self.v2_path_label, 1)
 
         self.path_toggle_btn = ToolButton(FluentIcon.MORE)
         self.path_toggle_btn.setToolTip("切换全路径/文件名")
         self.path_toggle_btn.clicked.connect(self._toggle_v2_path_view)
-        l.addWidget(self.path_toggle_btn)
+        layout.addWidget(self.path_toggle_btn)
 
         self.copy_path_btn = ToolButton(FluentIcon.COPY)
         self.copy_path_btn.setToolTip("复制 v2 配置路径")
         self.copy_path_btn.clicked.connect(self._copy_v2_path)
-        l.addWidget(self.copy_path_btn)
+        layout.addWidget(self.copy_path_btn)
 
-        l.addSpacing(Spacing.SM)
+        layout.addSpacing(Spacing.SM)
         self.api_status_label = self._make_secondary_label("API：检测中")
-        l.addWidget(self.api_status_label)
+        layout.addWidget(self.api_status_label)
 
         self.api_status_refresh_btn = ToolButton(FluentIcon.SYNC)
         self.api_status_refresh_btn.setToolTip("刷新 API 状态")
         self.api_status_refresh_btn.clicked.connect(self._refresh_api_status)
-        l.addWidget(self.api_status_refresh_btn)
+        layout.addWidget(self.api_status_refresh_btn)
 
-        l.addSpacing(Spacing.SM)
+        layout.addSpacing(Spacing.SM)
         self.selected_ref_label = self._make_secondary_label("当前选中参考音频：<无>")
-        l.addWidget(self.selected_ref_label, 1)
+        layout.addWidget(self.selected_ref_label, 1)
         return strip
     
     def _v2_client(self) -> V2Client:
@@ -740,30 +740,30 @@ class VoiceSettingsInterface(QWidget):
         path = self._safe_str(info.get("path"))
 
         w = QWidget()
-        l = QHBoxLayout(w)
-        l.setContentsMargins(4, 2, 4, 2)
-        l.setSpacing(Table.COLUMN_GAP_DENSE)
+        layout = QHBoxLayout(w)
+        layout.setContentsMargins(4, 2, 4, 2)
+        layout.setSpacing(Table.COLUMN_GAP_DENSE)
 
         chip = BodyLabel(self._safe_str(info.get("status_text")))
         chip.setFixedHeight(StatusChip.HEIGHT)
         chip.setStyleSheet(
             f"background: {chip_bg}; color: {chip_fg}; border-radius: 6px; padding: 0 8px;"
         )
-        l.addWidget(chip)
+        layout.addWidget(chip)
 
         name_lbl = BodyLabel(display_name or "<未绑定>")
         name_lbl.setWordWrap(False)
         name_lbl.setStyleSheet(f"color: {Palette.TEXT_SECONDARY};")
         tt = path or (self._safe_str(info.get("aid")) if self._safe_str(info.get("aid")) else "<未绑定>")
         name_lbl.setToolTip(tt)
-        l.addWidget(name_lbl, 1)
+        layout.addWidget(name_lbl, 1)
 
         folder_btn = ToolButton(FluentIcon.FOLDER)
         folder_btn.setFixedSize(Metrics.CONTROL_H, Metrics.CONTROL_H)
         folder_btn.setToolTip("打开参考音频目录")
         folder_btn.setEnabled(bool(path and os.path.exists(path)))
         folder_btn.clicked.connect(lambda _=False, idx=source_idx: self._open_main_ref_folder(idx))
-        l.addWidget(folder_btn)
+        layout.addWidget(folder_btn)
 
         more_btn = ToolButton(FluentIcon.MORE)
         more_btn.setFixedSize(Metrics.CONTROL_H, Metrics.CONTROL_H)
@@ -773,7 +773,7 @@ class VoiceSettingsInterface(QWidget):
                 idx, b.mapToGlobal(b.rect().bottomLeft())
             )
         )
-        l.addWidget(more_btn)
+        layout.addWidget(more_btn)
         self.setup_widget_context_menu(w, source_idx)
         return w
 

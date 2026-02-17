@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Callable, Dict, Optional
+from typing import Callable, Dict
 
 from PyQt5.QtCore import Qt, QThread, QTimer, QUrl, pyqtSignal
 from PyQt5.QtGui import QFont
@@ -20,7 +20,6 @@ from qfluentwidgets import (
     PrimaryPushButton,
     PushButton,
     SubtitleLabel,
-    ToolButton,
 )
 
 from .v2_client import V2Client, V2HttpError
@@ -333,14 +332,14 @@ class VoiceSetupWizardDialog(QDialog):
 
     def _build_page_health(self) -> QWidget:
         w = QWidget(self)
-        l = QVBoxLayout(w)
-        l.setContentsMargins(10, 10, 10, 10)
-        l.setSpacing(12)
+        layout = QVBoxLayout(w)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(12)
 
-        l.addWidget(BodyLabel("第 1 步：检查 API 服务与模型状态", self))
+        layout.addWidget(BodyLabel("第 1 步：检查 API 服务与模型状态", self))
         self.health_status = BodyLabel("状态：未检查", self)
         self.health_status.setStyleSheet(f"color: {Palette.TEXT_MUTED};")
-        l.addWidget(self.health_status)
+        layout.addWidget(self.health_status)
 
         row = QHBoxLayout()
         row.setSpacing(10)
@@ -361,24 +360,24 @@ class VoiceSetupWizardDialog(QDialog):
         row.addWidget(self.btn_load_model)
 
         row.addStretch()
-        l.addLayout(row)
+        layout.addLayout(row)
 
         tip = BodyLabel(
             "提示：如果你是第一次使用，建议先点击“启动 API 服务”，再点击“检查连接”。",
             self,
         )
         tip.setStyleSheet(f"color: {Palette.TEXT_MUTED};")
-        l.addWidget(tip)
-        l.addStretch()
+        layout.addWidget(tip)
+        layout.addStretch()
         return w
 
     def _build_page_role(self) -> QWidget:
         w = QWidget(self)
-        l = QVBoxLayout(w)
-        l.setContentsMargins(10, 10, 10, 10)
-        l.setSpacing(12)
+        layout = QVBoxLayout(w)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(12)
 
-        l.addWidget(BodyLabel("第 2 步：填写角色信息", self))
+        layout.addWidget(BodyLabel("第 2 步：填写角色信息", self))
 
         row1 = QHBoxLayout()
         row1.setSpacing(10)
@@ -387,7 +386,7 @@ class VoiceSetupWizardDialog(QDialog):
         self.edit_character.setFixedHeight(CONTROL_H)
         self.edit_character.setPlaceholderText("例如：胡桃 / 雷电将军 / Tom")
         row1.addWidget(self.edit_character, 1)
-        l.addLayout(row1)
+        layout.addLayout(row1)
 
         row2 = QHBoxLayout()
         row2.setSpacing(10)
@@ -396,11 +395,11 @@ class VoiceSetupWizardDialog(QDialog):
         self.edit_emotion.setFixedHeight(CONTROL_H)
         self.edit_emotion.setPlaceholderText("例如：default / happy / sad ...")
         row2.addWidget(self.edit_emotion, 1)
-        l.addLayout(row2)
+        layout.addLayout(row2)
 
         self.label_voice_id = BodyLabel("voice_id：", self)
         self.label_voice_id.setStyleSheet(f"color: {Palette.TEXT_MUTED};")
-        l.addWidget(self.label_voice_id)
+        layout.addWidget(self.label_voice_id)
 
         row3 = QHBoxLayout()
         row3.setSpacing(10)
@@ -415,18 +414,18 @@ class VoiceSetupWizardDialog(QDialog):
         self.combo_mode.addItems(["参考音色", "零样本复制", "精细控制", "指令控制"])
         self.combo_mode.setFixedHeight(CONTROL_H)
         row3.addWidget(self.combo_mode, 1)
-        l.addLayout(row3)
+        layout.addLayout(row3)
 
-        l.addStretch()
+        layout.addStretch()
         return w
 
     def _build_page_upload(self) -> QWidget:
         w = QWidget(self)
-        l = QVBoxLayout(w)
-        l.setContentsMargins(10, 10, 10, 10)
-        l.setSpacing(12)
+        layout = QVBoxLayout(w)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(12)
 
-        l.addWidget(BodyLabel("第 3 步：上传参考音频（默认情绪）", self))
+        layout.addWidget(BodyLabel("第 3 步：上传参考音频（默认情绪）", self))
 
         row = QHBoxLayout()
         row.setSpacing(10)
@@ -444,7 +443,7 @@ class VoiceSetupWizardDialog(QDialog):
         self.btn_upload.setIcon(FluentIcon.SEND)
         self.btn_upload.setFixedHeight(CONTROL_H)
         row.addWidget(self.btn_upload)
-        l.addLayout(row)
+        layout.addLayout(row)
 
         row2 = QHBoxLayout()
         row2.setSpacing(10)
@@ -453,11 +452,11 @@ class VoiceSetupWizardDialog(QDialog):
         self.edit_note.setFixedHeight(CONTROL_H)
         self.edit_note.setPlaceholderText("可选，用于搜索")
         row2.addWidget(self.edit_note, 1)
-        l.addLayout(row2)
+        layout.addLayout(row2)
 
         self.label_asset = BodyLabel("asset_id：<未上传>", self)
         self.label_asset.setStyleSheet(f"color: {Palette.TEXT_MUTED};")
-        l.addWidget(self.label_asset)
+        layout.addWidget(self.label_asset)
 
         row3 = QHBoxLayout()
         row3.setSpacing(10)
@@ -467,28 +466,28 @@ class VoiceSetupWizardDialog(QDialog):
         self.btn_play.setEnabled(False)
         row3.addWidget(self.btn_play)
         row3.addStretch()
-        l.addLayout(row3)
+        layout.addLayout(row3)
 
-        l.addStretch()
+        layout.addStretch()
         return w
 
     def _build_page_save(self) -> QWidget:
         w = QWidget(self)
-        l = QVBoxLayout(w)
-        l.setContentsMargins(10, 10, 10, 10)
-        l.setSpacing(12)
+        layout = QVBoxLayout(w)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(12)
 
-        l.addWidget(BodyLabel("第 4 步：保存 voice 并绑定参考音频", self))
+        layout.addWidget(BodyLabel("第 4 步：保存 voice 并绑定参考音频", self))
 
         self.prompt_text = PlainTextEdit(self)
         self.prompt_text.setPlaceholderText("参考文本（必填）。建议写与参考音频内容一致的文本。")
         self.prompt_text.setFixedHeight(160)
-        l.addWidget(self.prompt_text)
+        layout.addWidget(self.prompt_text)
 
         self.instruct_text = PlainTextEdit(self)
         self.instruct_text.setPlaceholderText("指令文本（可选，指令控制模式才会用到）")
         self.instruct_text.setFixedHeight(120)
-        l.addWidget(self.instruct_text)
+        layout.addWidget(self.instruct_text)
 
         row = QHBoxLayout()
         row.setSpacing(10)
@@ -508,22 +507,22 @@ class VoiceSetupWizardDialog(QDialog):
         self.btn_save_voice.setIcon(FluentIcon.SAVE)
         self.btn_save_voice.setFixedHeight(CONTROL_H)
         row.addWidget(self.btn_save_voice)
-        l.addLayout(row)
+        layout.addLayout(row)
 
         self.label_saved = BodyLabel("状态：未保存", self)
         self.label_saved.setStyleSheet(f"color: {Palette.TEXT_MUTED};")
-        l.addWidget(self.label_saved)
+        layout.addWidget(self.label_saved)
 
-        l.addStretch()
+        layout.addStretch()
         return w
 
     def _build_page_test(self) -> QWidget:
         w = QWidget(self)
-        l = QVBoxLayout(w)
-        l.setContentsMargins(10, 10, 10, 10)
-        l.setSpacing(12)
+        layout = QVBoxLayout(w)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(12)
 
-        l.addWidget(BodyLabel("第 5 步：编译 + 合成测试句", self))
+        layout.addWidget(BodyLabel("第 5 步：编译 + 合成测试句", self))
 
         row = QHBoxLayout()
         row.setSpacing(10)
@@ -538,12 +537,12 @@ class VoiceSetupWizardDialog(QDialog):
         row.addWidget(self.btn_synth)
 
         row.addStretch()
-        l.addLayout(row)
+        layout.addLayout(row)
 
         self.test_text = PlainTextEdit(self)
         self.test_text.setFixedHeight(160)
         self.test_text.setPlaceholderText("输入一段测试文本")
-        l.addWidget(self.test_text)
+        layout.addWidget(self.test_text)
 
         row2 = QHBoxLayout()
         row2.setSpacing(10)
@@ -553,13 +552,13 @@ class VoiceSetupWizardDialog(QDialog):
         self.btn_play_out.setEnabled(False)
         row2.addWidget(self.btn_play_out)
         row2.addStretch()
-        l.addLayout(row2)
+        layout.addLayout(row2)
 
         self.label_out = BodyLabel("输出：<未生成>", self)
         self.label_out.setStyleSheet(f"color: {Palette.TEXT_MUTED};")
-        l.addWidget(self.label_out)
+        layout.addWidget(self.label_out)
 
-        l.addStretch()
+        layout.addStretch()
         return w
 
     def _connect_signals(self):

@@ -573,10 +573,8 @@ class VoiceLibraryDialog(QDialog):
         r = rows[0].row()
         voice_id_item = self.table_voices.item(r, 1)
         emotion_item = self.table_voices.item(r, 0)
-        mode_item = self.table_voices.item(r, 2)
         voice_id = (voice_id_item.text() if voice_id_item else "").strip()
         emotion = (emotion_item.text() if emotion_item else "").strip()
-        mode = (mode_item.text() if mode_item else "").strip()
 
         character, emo2 = _parse_voice_id(voice_id)
         self._selected_voice_id = voice_id

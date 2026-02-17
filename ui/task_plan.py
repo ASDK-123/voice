@@ -1,15 +1,13 @@
 import os
 import datetime
 import json
-from typing import List, Tuple, Optional, Dict
+from typing import List, Tuple, Dict
 
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QFileDialog, QHeaderView, QTableWidgetItem,
-    QAbstractItemView
+    QWidget, QVBoxLayout, QHBoxLayout, QFileDialog, QHeaderView, QTableWidgetItem
 )
 from PyQt5.QtCore import Qt, pyqtSignal, QUrl
 from PyQt5.QtGui import QDesktopServices
-from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 
 from qfluentwidgets import (
     PushButton, PrimaryPushButton, TableWidget, LineEdit,

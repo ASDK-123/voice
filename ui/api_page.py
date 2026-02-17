@@ -1,5 +1,4 @@
 import sys
-import io
 import threading
 import logging
 import requests
@@ -9,15 +8,15 @@ import html
 from datetime import datetime
 
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTextEdit, QScrollArea, QDialog, QTableWidget, QTableWidgetItem, QHeaderView
+    QWidget, QVBoxLayout, QHBoxLayout, QTableWidgetItem, QHeaderView
 )
-from PyQt5.QtCore import Qt, pyqtSignal, QThread, QObject, QTimer
-from PyQt5.QtGui import QFont, QColor
+from PyQt5.QtCore import Qt, pyqtSignal, QThread, QTimer
+from PyQt5.QtGui import QFont
 
 from qfluentwidgets import (
     PushButton, PrimaryPushButton, SpinBox, SubtitleLabel, BodyLabel,
     FluentIcon, InfoBar, InfoBarPosition, CardWidget, CaptionLabel, TableWidget,
-    MessageBoxBase, TextEdit, isDarkTheme, SwitchButton
+    MessageBoxBase, TextEdit, SwitchButton
 )
 
 from core.worker import ModelLoaderThread

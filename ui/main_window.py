@@ -1,18 +1,14 @@
-import sys
 import os
 import datetime
-import gc
 from typing import List, Optional
 
 import requests
-from PyQt5.QtWidgets import QApplication
 from PyQt5.QtCore import Qt, QUrl, QTimer, pyqtSignal, QThread
 from PyQt5.QtGui import QIcon, QDesktopServices
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 
 from qfluentwidgets import (
-    FluentWindow, FluentIcon, NavigationItemPosition, InfoBar, InfoBarPosition, setTheme, Theme,
-    ComboBox, BodyLabel, PushButton
+    FluentWindow, FluentIcon, NavigationItemPosition, InfoBar, InfoBarPosition, setTheme, Theme
 )
 
 from core.models import TaskSegment
@@ -793,7 +789,7 @@ class CosyVoiceProApp(FluentWindow):
             print(f"Failed to load model: {e}")
             InfoBar.warning(
                 title='模型加载失败',
-                content=f"未能加载 CosyVoice 模型，请检查模型文件",
+                content="未能加载 CosyVoice 模型，请检查模型文件",
                 orient=Qt.Horizontal,
                 isClosable=True,
                 position=InfoBarPosition.TOP,
