@@ -200,8 +200,9 @@ class EmotionAssetsPanel(QWidget):
 
     def _set_enabled(self, enabled: bool):
         for w in [
-            self.play_btn,
             self.bind_btn,
+            self.unbind_btn,
+            self.play_btn,
             self.more_btn,
             self.choose_file_btn,
             self.upload_btn,
@@ -216,6 +217,25 @@ class EmotionAssetsPanel(QWidget):
             except Exception:
                 pass
 
+    @staticmethod
+    def _clamp(v: int, lo: int, hi: int) -> int:
+        return max(int(lo), min(int(hi), int(v)))
+
+    def _apply_asset_table_columns(self, width_hint: int = 0):
+        try:
+            avail = int(width_hint or 0)
+            if avail <= 0:
+                avail = int(self.asset_table.viewport().width() or 0)
+            if avail <= 0:
+                avail = int(self.width() or 0)
+            avail = max(520, avail)
+            note_w = self._clamp(int(avail * 0.24), 160, 320)
+            path_w = self._clamp(int(avail * 0.30), 200, 420)
+            self.asset_table.setColumnWidth(2, note_w)
+            self.asset_table.setColumnWidth(4, path_w)
+        except Exception:
+            pass
+
     def _init_ui(self):
         root = QVBoxLayout(self)
         root.setContentsMargins(Spacing.LG, Spacing.LG, Spacing.LG, Spacing.LG)
@@ -228,17 +248,23 @@ class EmotionAssetsPanel(QWidget):
         header.addWidget(title_right)
         header.addStretch()
 
-        self.play_btn = PushButton("试听")
-        self.play_btn.setFixedHeight(CONTROL_H)
-        self.play_btn.setIcon(FluentIcon.VOLUME)
-        self.play_btn.clicked.connect(self.play_selected_asset)
-        header.addWidget(self.play_btn)
-
         self.bind_btn = PrimaryPushButton("绑定到当前 voice")
         self.bind_btn.setFixedHeight(CONTROL_H)
         self.bind_btn.setIcon(FluentIcon.LINK)
         self.bind_btn.clicked.connect(self.bind_selected_assets)
         header.addWidget(self.bind_btn)
+
+        self.unbind_btn = PushButton("解绑")
+        self.unbind_btn.setFixedHeight(CONTROL_H)
+        self.unbind_btn.setIcon(FluentIcon.CLOSE)
+        self.unbind_btn.clicked.connect(self.unbind_selected_assets)
+        header.addWidget(self.unbind_btn)
+
+        self.play_btn = PushButton("试听")
+        self.play_btn.setFixedHeight(CONTROL_H)
+        self.play_btn.setIcon(FluentIcon.VOLUME)
+        self.play_btn.clicked.connect(self.play_selected_asset)
+        header.addWidget(self.play_btn)
 
         self.more_btn = ToolButton(FluentIcon.MORE)
         self.more_btn.setFixedSize(TOOL_BTN_SZ, TOOL_BTN_SZ)
@@ -348,8 +374,7 @@ class EmotionAssetsPanel(QWidget):
         hdr.setSectionResizeMode(4, QHeaderView.Stretch)
         hdr.setSectionResizeMode(5, QHeaderView.ResizeToContents)
         hdr.setSectionResizeMode(6, QHeaderView.ResizeToContents)
-        self.asset_table.setColumnWidth(2, 220)
-        self.asset_table.setColumnWidth(4, 260)
+        self._apply_asset_table_columns(width_hint=self.width())
         root.addWidget(self.asset_table, 1)
 
         for w in [self, self.file_label, self.asset_table]:
@@ -620,9 +645,9 @@ class EmotionAssetsPanel(QWidget):
             pass
 
         menu = RoundMenu(parent=self)
-        menu.addAction(Action(FluentIcon.VOLUME, "试听", self, triggered=self.play_selected_asset))
         menu.addAction(Action(FluentIcon.LINK, "绑定到当前 voice", self, triggered=self.bind_selected_assets))
         menu.addAction(Action(FluentIcon.CLOSE, "从当前 voice 解绑", self, triggered=self.unbind_selected_assets))
+        menu.addAction(Action(FluentIcon.VOLUME, "试听", self, triggered=self.play_selected_asset))
         menu.addSeparator()
         menu.addAction(Action(FluentIcon.DELETE, "删除", self, triggered=self.delete_selected_assets))
         menu.addSeparator()
@@ -951,3 +976,10 @@ class EmotionAssetsPanel(QWidget):
     def closeEvent(self, event):
         self.shutdown()
         super().closeEvent(event)
+
+    def resizeEvent(self, event):
+        try:
+            self._apply_asset_table_columns(width_hint=int(event.size().width()))
+        except Exception:
+            pass
+        super().resizeEvent(event)

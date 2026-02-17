@@ -45,14 +45,10 @@ class VoiceRefsSheet(QFrame):
         top.addWidget(self.close_btn)
         root.addLayout(top)
 
-        self.subtitle = BodyLabel("未选择 voice")
-        self.subtitle.setStyleSheet(f"color: {Palette.TEXT_SECONDARY};")
-        self.subtitle.setWordWrap(False)
+        self.subtitle = self._make_secondary_label("未选择 voice")
         root.addWidget(self.subtitle)
 
-        self.meta_label = BodyLabel("资源：0 条 | 已绑定：0 条")
-        self.meta_label.setStyleSheet(f"color: {Palette.TEXT_SECONDARY};")
-        self.meta_label.setWordWrap(False)
+        self.meta_label = self._make_secondary_label("资源：0 条 | 已绑定：0 条")
         root.addWidget(self.meta_label)
 
         self.panel = EmotionAssetsPanel(client_factory, parent=self)
@@ -70,6 +66,12 @@ class VoiceRefsSheet(QFrame):
             }}
             """
         )
+
+    def _make_secondary_label(self, text: str) -> BodyLabel:
+        label = BodyLabel(text)
+        label.setStyleSheet(f"color: {Palette.TEXT_SECONDARY};")
+        label.setWordWrap(False)
+        return label
 
     def set_context(self, *, character: str, emotion: str, voice_id: str, ref_asset_ids: Optional[List[str]] = None):
         self.character = (character or "").strip()
