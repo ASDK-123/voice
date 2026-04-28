@@ -2,10 +2,10 @@
   <img src="icon.ico" width="120" alt="CosyVoice Desktop Logo">
 </p>
 
-<h1 align="center">CosyVoice Desktop</h1>
+<h1 align="center">CosyVoice WebUI + API</h1>
 
 <p align="center">
-  <strong>基于阿里巴巴 CosyVoice3 引擎的本地化 TTS 桌面应用 & API 服务</strong>
+  <strong>基于阿里巴巴 CosyVoice3 引擎的本地化 TTS Web 工作站、桌面兼容入口与 API 服务</strong>
 </p>
 
 <p align="center">
@@ -17,64 +17,116 @@
 </p>
 
 <p align="center">
-  桌面 GUI · HTTP API（v1/v2）· OpenAI 兼容桥接 · 多角色多情绪 · 语音克隆 · 批量合成
+  WebUI 主线 · HTTP API（v1/v2）· OpenAI 兼容桥接 · 多角色多情绪 · 语音克隆 · 批量合成
 </p>
 
 ---
 
-## 📋 目录
+## 目录
 
-- [✨ 功能特性](#-功能特性)
-- [🏗️ 系统架构](#️-系统架构)
-- [📁 目录结构](#-目录结构)
-- [🚀 快速开始](#-快速开始)
+- [功能特性](#功能特性)
+- [系统架构](#系统架构)
+- [目录结构](#目录结构)
+- [快速开始](#快速开始)
   - [环境要求](#环境要求)
   - [安装步骤](#安装步骤)
   - [启动方式](#启动方式)
-- [🖥️ 桌面 GUI 功能](#️-桌面-gui-功能)
-- [🔌 API 文档](#-api-文档)
+- [入口选择](#入口选择)
+- [桌面 GUI 功能（Legacy）](#桌面-gui-功能legacy)
+- [API 文档](#api-文档)
   - [v1 兼容接口](#v1-兼容接口端口-9880)
   - [v2 RESTful 接口](#v2-restful-接口前缀-apiv2)
   - [OpenAI 兼容桥接](#openai-兼容桥接端口-5000)
-- [🎭 语音配置规范（Voice Config Spec）](#-语音配置规范voice-config-spec)
-- [⚙️ 配置参考](#️-配置参考)
-- [🧩 插件与扩展规范](#-插件与扩展规范)
-- [❓ 常见问题（FAQ）](#-常见问题faq)
-- [📜 更新日志](#-更新日志)
-- [📄 许可证](#-许可证)
+- [语音配置规范（Voice Config Spec）](#语音配置规范voice-config-spec)
+- [配置参考](#配置参考)
+- [日志系统（v2）](#日志系统v2)
+- [真实回归](#真实回归)
+- [插件与扩展规范](#插件与扩展规范)
+- [常见问题（FAQ）](#常见问题faq)
+- [更新日志](#更新日志)
+- [许可证](#许可证)
 
 ---
 
-## ✨ 功能特性
+## 功能特性
 
 | 类别 | 功能 | 说明 |
 |------|------|------|
-| 🎙️ 语音合成 | 多角色多情绪 TTS | 支持 `voice_id = 角色#情绪` 格式，一个角色可配置多种情绪 |
-| 🔊 语音克隆 | 零样本复制 | 上传参考音频即可克隆任意音色，无需训练 |
-| 🎛️ 风格控制 | 指令控制 / 精细控制模式 | `精细控制` 基于参考音频迁移风格；`指令控制` 通过 `instruct_text` + 参考音频控制语气 |
-| 📦 批量合成 | 任务计划系统 | 支持多段文本批量生成，导出 JSON 任务计划 |
-| 🔗 API 服务 | v1 + v2 双版本 HTTP API | REST 风格，支持资产管理、CRUD 操作、异步任务 |
-| 🤖 OpenAI 兼容 | Bridge 桥接服务 | `POST /v1/audio/speech` 兼容 OpenAI TTS API |
-| 🍺 酒馆集成 | SillyTavern 兼容 | 内置 `/speakers`、`/` 等酒馆端点 |
-| 💾 缓存系统 | 智能合成缓存 | 基于 SHA1 的缓存键策略，避免重复合成 |
-| 📂 资产管理 | v2 参考音频资产 | SQLite 索引，支持上传/绑定/清理/引用追踪 |
-| 🖥️ 桌面 GUI | PyQt5 + Fluent Design | 多页面导航，语音设置向导，主题切换 |
-| 🌐 局域网访问 | LAN 共享 | 默认监听 `0.0.0.0`，局域网设备直接调用 |
+| 语音合成 | 多角色多情绪 TTS | 支持 `voice_id = 角色#情绪` 格式，一个角色可配置多种情绪 |
+| 语音克隆 | 零样本复制 | 上传参考音频即可克隆任意音色，无需训练 |
+| 风格控制 | 指令控制 / 精细控制模式 | `精细控制` 基于参考音频迁移风格；`指令控制` 通过 `instruct_text` + 参考音频控制语气 |
+| 批量合成 | 任务计划系统 | 支持多段文本批量生成，导出 JSON 任务计划 |
+| API 服务 | v1 + v2 双版本 HTTP API | REST 风格，支持资产管理、CRUD 操作、异步任务 |
+| OpenAI 兼容 | Bridge 桥接服务 | `POST /v1/audio/speech` 兼容 OpenAI TTS API |
+| 酒馆集成 | SillyTavern 兼容 | 内置 `/speakers`、`/` 等酒馆端点 |
+| 缓存系统 | 智能合成缓存 | 基于 SHA1 的缓存键策略，避免重复合成 |
+| 资产管理 | v2 参考音频资产 | SQLite 索引，支持上传/绑定/清理/引用追踪 |
+| 日志系统 | 日志 v2（中文优先） | 统一事件模型 `LogEventV1`、崩溃闭环、结构化 `jsonl`、平滑兼容旧日志 |
+| 桌面 GUI | PyQt5 + Fluent Design | 兼容入口，保留多页面导航与历史工作流 |
+| 局域网访问 | LAN 共享 | 默认监听 `0.0.0.0`，局域网设备直接调用 |
 
 ---
 
-## 🏗️ 系统架构
+## 入口选择
+
+当前推荐入口：
+
+1. **WebUI（主线）**：优先使用 `StartWebUI.bat`
+2. **API 服务**：需要外部调用或桥接时使用 `StartAPIServer.bat`
+3. **桌面 GUI（Legacy）**：仅作为兼容和回退入口，优先级低于 WebUI
+
+当前项目状态：
+
+1. WebUI 是后续功能整合主线
+2. 桌面 GUI 进入 legacy / maintenance 路线
+3. 新能力优先落在 WebUI，而不是 `ui/`
+
+## 真实回归
+
+WebUI 提供两套验证入口：
+
+1. `npm run smoke`
+   说明：纯 mock 前端 smoke，适合日常改动后的快速回归。
+2. `npm run regression:real`
+   说明：真实后端回归脚本，直接请求实际 `/api/v2/*` 和 `/api/v2/pro/*` 接口。
+
+在 `web_ui/` 下运行真实回归时，至少需要设置：
+
+```powershell
+$env:WEBUI_REAL_BASE_URL="http://127.0.0.1:9880"
+$env:WEBUI_REAL_MODE="no-auth"
+npm run regression:real
+```
+
+可选环境变量：
+
+- `WEBUI_REAL_API_KEY`：启用 API Key 鉴权时填写
+- `WEBUI_REAL_BRIDGE_URL`：本地桥接模式时填写，例如 `http://127.0.0.1:9879`
+- `WEBUI_REAL_ALLOW_SYSTEM_ACTIONS=1`：允许脚本实际调用模型重载/卸载和桥接 ensure-runtime
+- `WEBUI_REAL_BATCH_TEXT`：真实批量任务的测试文本
+
+推荐按四种场景分别执行：
+
+1. 无鉴权
+2. 有鉴权
+3. 本地桥接模式
+4. 远程服务模式
+
+---
+
+## 系统架构
 
 ```mermaid
 graph TB
     subgraph 用户层
-        GUI["🖥️ 桌面 GUI<br/>PyQt5 + qfluentwidgets"]
-        ExtClient["🌐 外部客户端<br/>curl / SillyTavern / 脚本"]
+        WebUI["Web UI 控制台<br/>Vue 3 + Vite"]
+        GUI["桌面 GUI<br/>PyQt5 + qfluentwidgets"]
+        ExtClient["外部客户端<br/>curl / SillyTavern / 脚本"]
     end
 
     subgraph 服务层
-        Bridge["🤖 OpenAI Bridge<br/>Flask :5000"]
-        API["🔌 CosyVoice API<br/>Flask :9880"]
+        Bridge["OpenAI Bridge<br/>Flask :5000"]
+        API["CosyVoice API<br/>Flask :9880"]
     end
 
     subgraph 核心层
@@ -86,17 +138,18 @@ graph TB
     end
 
     subgraph 引擎层
-        CosyVoice["🧠 CosyVoice3-0.5B<br/>AutoModel · PyTorch"]
-        WeText["📝 WeText<br/>文本归一化"]
+        CosyVoice["CosyVoice3-0.5B<br/>AutoModel · PyTorch"]
+        WeText["WeText<br/>文本归一化"]
     end
 
     subgraph 存储层
-        VoiceStore["📄 voices JSON<br/>super_agent.json"]
-        AssetDB["🗃️ SQLite<br/>api_v2_assets.sqlite3"]
-        AudioFiles["🎵 音频文件<br/>data/assets/audio/"]
-        CacheDir["💾 缓存目录<br/>data/cache/"]
+        VoiceStore["voices JSON<br/>super_agent.json"]
+        AssetDB["SQLite<br/>api_v2_assets.sqlite3"]
+        AudioFiles["音频文件<br/>data/assets/audio/"]
+        CacheDir["缓存目录<br/>data/cache/"]
     end
 
+    WebUI --> API
     GUI --> API
     ExtClient --> API
     ExtClient --> Bridge
@@ -121,20 +174,20 @@ graph TB
 
 ```mermaid
 flowchart LR
-    A["📝 文本输入"] --> B["🔍 文本归一化<br/>normalize.py"]
-    B --> C["🎭 语音解析<br/>resolve_voice.py"]
-    C --> D["🎤 参考音选择<br/>select_ref.py"]
-    D --> E["🔑 缓存键计算<br/>cache_key.py"]
-    E --> F{"💾 缓存命中?"}
-    F -- HIT --> G["📤 返回缓存音频"]
-    F -- MISS --> H["🧠 CosyVoice3 推理<br/>engine.py"]
-    H --> I["💾 写入缓存"]
+    A["文本输入"] --> B["文本归一化<br/>normalize.py"]
+    B --> C["语音解析<br/>resolve_voice.py"]
+    C --> D["参考音选择<br/>select_ref.py"]
+    D --> E["缓存键计算<br/>cache_key.py"]
+    E --> F{"缓存命中?"}
+    F -- HIT --> G["返回缓存音频"]
+    F -- MISS --> H["CosyVoice3 推理<br/>engine.py"]
+    H --> I["写入缓存"]
     I --> G
 ```
 
 ---
 
-## 📁 目录结构
+## 目录结构
 
 ```
 CosyVoiceDesktop/
@@ -144,7 +197,8 @@ CosyVoiceDesktop/
 ├── 📄 app_config.json            # 全局应用配置
 ├── 📄 icon.ico                   # 应用图标
 │
-├── 🔧 StartCosyVoice.bat         # 一键启动桌面程序
+├── 🔧 StartWebUI.bat             # 一键启动全新 Web UI 控制台 (Vue 3)
+├── 🔧 StartCosyVoice.bat         # 一键启动桌面程序 (PyQt5)
 ├── 🔧 StartAPIServer.bat         # 一键启动 API + Bridge 服务
 ├── 🔧 DownloadModel.bat          # 一键下载预训练模型
 ├── 🔧 restore_onnx_cpu.bat       # 恢复 onnxruntime CPU 版本
@@ -161,6 +215,13 @@ CosyVoiceDesktop/
 │   ├── download.py               # 模型下载脚本
 │   ├── emotion_selector.py       # 情绪选择器
 │   ├── utils.py                  # 通用工具函数
+│   │
+│   ├── 📁 logging/               # 日志 v2 子系统
+│   │   ├── schema.py             # LogEventV1 结构与事件字段约束
+│   │   ├── runtime.py            # 日志运行时（队列、路由、轮转、降噪）
+│   │   ├── crash.py              # 崩溃捕获（sys/thread/Qt/faulthandler）
+│   │   ├── redaction.py          # 日志脱敏（文本/路径/token/headers）
+│   │   └── compat.py             # 旧日志兼容（平滑双写）
 │   │
 │   ├── 📁 server/                # 服务器启动框架
 │   │   ├── main.py               # 服务器启动入口
@@ -205,6 +266,11 @@ CosyVoiceDesktop/
 │       ├── emotion_assets_panel.py  # 情绪资产面板
 │       └── voice_refs_sheet.py      # 参考音频表单
 │
+├── web_ui/                      # 新一代 Web 前端 (Vue 3 + Vite)
+│   ├── src/                      # 前端源代码
+│   ├── package.json              # 依赖配置
+│   └── vite.config.ts            # 构建配置
+│
 ├── 📁 config/                    # 配置文件
 │   ├── super_agent.json          # v2 推荐角色配置（voice_id 格式）
 │   ├── config.json               # v1 兼容角色配置
@@ -231,6 +297,7 @@ CosyVoiceDesktop/
 │   ├── api_v2_assets.sqlite3     # v2 资产索引数据库
 │   ├── assets/audio/             # 参考音频资产文件
 │   ├── cache/                    # 合成结果缓存
+│   ├── logs/                     # 运行日志（app.log/access.jsonl/crash.log）
 │   └── outputs/                  # 输出音频文件
 │
 ├── 📁 asset/                     # 内置示例参考音频
@@ -240,6 +307,7 @@ CosyVoiceDesktop/
 │   ├── import_legacy_voice_config_to_v2.py   # v1→v2 配置迁移
 │   ├── migrate_cache_index_json_to_sqlite.py # 缓存索引迁移
 │   ├── migrate_v2_assets_json_to_sqlite.py   # 资产索引迁移
+│   ├── export_diagnostic_bundle.py           # 导出问题诊断包（日志+配置摘要）
 │   └── benchmarks/               # 性能基准测试
 │
 ├── 📁 tests/                     # 自动化测试
@@ -247,9 +315,14 @@ CosyVoiceDesktop/
 │   ├── test_synthesis_engine_errors.py   # 合成错误处理测试
 │   ├── test_synthesis_key_parity.py      # 缓存键一致性测试
 │   ├── test_synthesis_normalization.py   # 文本归一化测试
-│   └── test_voices_store_m4.py           # v2 Voices Store 测试
+│   ├── test_voices_store_m4.py           # v2 Voices Store 测试
+│   ├── test_logging_schema.py            # 日志 schema 与事件码校验
+│   ├── test_logging_redaction.py         # 日志脱敏规则测试
+│   └── test_logging_compat.py            # 旧日志兼容解析测试
 │
 ├── 📁 docs/                      # 项目文档
+│   ├── log_event_dictionary_v1.md # 日志事件字典（字段与事件码）
+│   └── log_triage_runbook.md      # 闪退排障 Runbook
 ├── 📁 third_party/               # 第三方依赖
 ├── 📁 deprecated/                # 已废弃代码
 │
@@ -261,7 +334,7 @@ CosyVoiceDesktop/
 
 ---
 
-## 🚀 快速开始
+## 快速开始
 
 ### 环境要求
 
@@ -310,16 +383,31 @@ StartCosyVoice.bat
 
 | 场景 | 命令 | 说明 |
 |------|------|------|
-| 桌面 GUI | `StartCosyVoice.bat` | 启动完整桌面应用程序 |
+| Web UI（推荐） | `StartWebUI.bat` | 启动主线 Vue 3 浏览器工作站 |
 | API 服务 | `StartAPIServer.bat` | 启动 API (:9880) + Bridge (:5000) |
+| 桌面 GUI（Legacy） | `StartCosyVoice.bat` | 启动历史桌面入口，用于兼容和回退 |
 | 仅 API | `.pixi\envs\default\python.exe core\api.py --config config\super_agent.json --host 0.0.0.0 --port 9880` | 手动启动核心 API |
 | 仅桥接 | `.pixi\envs\default\python.exe bridge.py` | 手动启动 OpenAI Bridge |
 
+### WebUI 验证
+
+```powershell
+cd web_ui
+npm install
+npm run smoke:install
+npm run smoke
+```
+
+说明：
+
+1. `smoke` 会构建 WebUI，并对 `Pro Workspace` 主流程做最小浏览器检查
+2. 失败截图会输出到 `web_ui/output/playwright/`
+
 ---
 
-## 🖥️ 桌面 GUI 功能
+## 🖥️ 桌面 GUI 功能（Legacy）
 
-桌面端采用 **PyQt5 + [QFluentWidgets](https://github.com/zhiyiYo/PyQt-Fluent-Widgets)** 构建，提供 Fluent Design 风格界面。
+桌面端采用 **PyQt5 + [QFluentWidgets](https://github.com/zhiyiYo/PyQt-Fluent-Widgets)** 构建，目前作为 legacy 兼容入口保留。
 
 ### 页面导航
 
@@ -571,6 +659,16 @@ voice_id = {character}#{emotion}
 | `min_text_length` | `int` | `3` | 最小文本长度 |
 | `project_name` | `string` | `"project"` | 项目名称 |
 | `output_dir` | `string` | `"./output"` | 输出目录 |
+| `log_language` | `string` | `"zh-CN"` | 日志语言（`zh-CN` / `en-US` / `bilingual`） |
+| `log_console_format` | `string` | `"human"` | 控制台格式（`human` / `json`） |
+| `log_file_format` | `string` | `"jsonl"` | 文件日志格式（当前固定为 `jsonl`） |
+| `log_level` | `string` | `"INFO"` | 日志级别（`DEBUG/INFO/WARNING/ERROR`） |
+| `log_dir` | `string` | `"data/logs"` | 日志目录 |
+| `log_third_party_mode` | `string` | `"quiet"` | 第三方日志噪声控制（`quiet/normal/verbose`） |
+| `log_compat_mode` | `string` | `"smooth"` | 兼容模式（`smooth/legacy/strict`） |
+| `log_schema_version` | `string` | `"1"` | 结构化日志 schema 版本 |
+| `log_queue_max` | `int` | `10000` | 异步日志队列最大长度 |
+| `log_drop_policy` | `string` | `"drop_debug_first"` | 队列满时丢弃策略 |
 
 ### 配置加载优先级
 
@@ -580,6 +678,34 @@ v2_voices_config_path (app_config.json)
 config/super_agent.json
     ↓ 如果不存在
 config/voices_v2.json
+```
+
+---
+
+## 🧾 日志系统（v2）
+
+### 日志产物
+
+- `data/logs/app.log`：中文人读日志（UI/业务主事件）
+- `data/logs/access.jsonl`：结构化 API 访问日志（`API_REQ_*`）
+- `data/logs/crash.log`：崩溃日志（未捕获异常、线程异常、Qt 致命消息）
+
+### 关键设计
+
+1. 统一事件模型：`LogEventV1`（`core/logging/schema.py`）
+2. 中文优先展示：控制台与 UI 默认输出中文模板
+3. 崩溃闭环：`sys.excepthook`、`threading.excepthook`、Qt message handler、`faulthandler` 全量接管
+4. 平滑兼容：`log_compat_mode=smooth` 下双写（结构化 + 旧文本）
+5. 日志治理：内置脱敏（文本摘要、路径裁剪、token/headers 掩码）与第三方降噪
+
+### 快速排障
+
+- 事件字典：`docs/log_event_dictionary_v1.md`
+- 闪退流程：`docs/log_triage_runbook.md`
+- 一键导出诊断包：
+
+```powershell
+python scripts/export_diagnostic_bundle.py
 ```
 
 ---
@@ -733,6 +859,30 @@ winget install Gyan.FFmpeg
 restore_onnx_cpu.bat
 ```
 
+### 🟡 点击“语音合成”后闪退，先看哪些日志？
+
+按顺序排查：
+
+1. `data/logs/crash.log`（先看最后一条异常和线程名）
+2. 同时间窗口 `data/logs/access.jsonl`（看 `API_REQ_START/END/FAIL`）
+3. 同 `request_id` 在 `data/logs/app.log` 中串联 UI 与推理事件
+
+如果需要反馈问题，建议直接执行：
+
+```powershell
+python scripts/export_diagnostic_bundle.py
+```
+
+把生成的 zip 诊断包附在 issue 中。
+
+### 🟡 如何切换日志兼容模式？
+
+在 `app_config.json` 设置 `log_compat_mode`：
+
+- `smooth`：默认，双写（推荐）
+- `legacy`：旧文本优先，结构化保底
+- `strict`：仅结构化事件（便于机器处理）
+
 ### 🟡 局域网访问失败
 
 1. 确认服务监听 `0.0.0.0`（`StartAPIServer.bat` 已默认设置）
@@ -743,6 +893,15 @@ restore_onnx_cpu.bat
 ---
 
 ## 📜 更新日志
+
+### v1.4.1
+
+- 引入日志系统 v2（中文优先 + 结构化 `jsonl` + 事件字典）
+- 新增 `core/logging/` 子系统：schema/runtime/crash/redaction/compat
+- 新增 `app.log / access.jsonl / crash.log` 三通道路由
+- 新增崩溃捕获闭环（`sys`/`thread`/Qt/`faulthandler`）
+- 新增诊断包导出脚本：`scripts/export_diagnostic_bundle.py`
+- 新增排障文档：`docs/log_event_dictionary_v1.md`、`docs/log_triage_runbook.md`
 
 ### v1.4
 

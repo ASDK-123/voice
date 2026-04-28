@@ -15,7 +15,12 @@ from typing import Dict
 
 
 def _ensure_repo_root_on_path() -> None:
-    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    # 移除被隐式加入的 core 目录，防止内置包 shadowing（如 core/logging 屏蔽了自带的 logging）
+    current_dir = os.path.abspath(os.path.dirname(__file__))
+    if current_dir in sys.path:
+        sys.path.remove(current_dir)
+        
+    repo_root = os.path.abspath(os.path.join(current_dir, ".."))
     if repo_root not in sys.path:
         sys.path.insert(0, repo_root)
 

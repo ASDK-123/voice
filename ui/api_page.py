@@ -4,9 +4,17 @@ import logging
 import requests
 import subprocess
 import os
+import json
+
+# -------- 允许独立调试 UI 视图 --------
+if __name__ == '__main__':
+    root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if root_dir not in sys.path:
+        sys.path.insert(0, root_dir)
+# ------------------------------------
+
 import html
 from datetime import datetime
-
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableWidgetItem, QHeaderView
 )
@@ -20,7 +28,7 @@ from qfluentwidgets import (
 )
 
 from core.worker import ModelLoaderThread
-from werkzeug.serving import make_server
+from ui.services.process_manager import APIServerThread, BridgeServiceWorker
 from core import api
 
 from .v2_client import V2Client, V2Config, V2HttpError
@@ -111,124 +119,19 @@ class StreamToSignal(object):
 
 class RuntimeCharacterConfig:
     """运行时角色配置适配器"""
-    def __init__(self, voice_settings_interface):
-        self.voice_interface = voice_settings_interface
+    def __init__(self, voice_configs: list):
+        self.voice_configs = voice_configs
 
     def get_character(self, char_name: str) -> dict:
         """获取角色配置"""
-        # 遍历 voice_interface 中的配置
-        for config in self.voice_interface.voice_configs:
+        for config in self.voice_configs:
             if config.name == char_name:
                 return config.to_dict()
         return None
     
     def list_characters(self) -> list:
         """列出所有角色"""
-        return [config.name for config in self.voice_interface.voice_configs]
-
-class APIServerThread(QThread):
-    """API 服务线程"""
-    log_signal = pyqtSignal(str)
-    started_signal = pyqtSignal()
-    stopped_signal = pyqtSignal()
-    error_signal = pyqtSignal(str)
-
-    def __init__(self, host, port, model, config_manager):
-        super().__init__()
-        self.host = host
-        self.port = port
-        self.model = model
-        self.config_manager = config_manager
-        self.server = None
-        self.is_running = False
-        
-        # 设置日志回调
-        api.set_log_callback(self.on_api_log)
-
-    def on_api_log(self, msg):
-        """API 日志回调"""
-        self.log_signal.emit(msg)
-
-    def run(self):
-        try:
-            # 设置 API 全局变量
-            api.set_globals(self.model, self.config_manager)
-            
-            # 创建服务器
-            self.server = make_server(self.host, self.port, api.app)
-            self.is_running = True
-            self.started_signal.emit()
-            self.log_signal.emit(f"[OK] API Server started at http://{self.host}:{self.port}")
-            
-            # 启动服务循环
-            self.server.serve_forever()
-            
-        except Exception as e:
-            self.error_signal.emit(str(e))
-            self.log_signal.emit(f"[ERROR] API Server error: {e}")
-        finally:
-            self.is_running = False
-            self.stopped_signal.emit()
-
-    def stop(self):
-        if self.server:
-            self.server.shutdown()
-
-
-class BridgeServiceWorker(QThread):
-    """桥接服务启停后台 worker，避免主线程阻塞。"""
-
-    done = pyqtSignal(str, bool, object, str)  # action, ok, process, message
-
-    def __init__(self, action: str, *, process=None, bridge_path: str = "", python_path: str = ""):
-        super().__init__()
-        self.action = str(action or "").strip().lower()
-        self.process = process
-        self.bridge_path = str(bridge_path or "").strip()
-        self.python_path = str(python_path or "").strip()
-
-    def run(self):
-        try:
-            if self.action == "start":
-                if (not self.bridge_path) or (not os.path.exists(self.bridge_path)):
-                    self.done.emit("start", False, None, "找不到 bridge.py 文件")
-                    return
-                py = self.python_path or sys.executable
-                proc = subprocess.Popen(
-                    [py, self.bridge_path],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    cwd=os.path.dirname(self.bridge_path),
-                )
-                import time
-                time.sleep(1.0)
-                if proc.poll() is not None:
-                    self.done.emit("start", False, None, f"桥接服务启动失败（exit={proc.returncode}）")
-                    return
-                self.done.emit("start", True, proc, "")
-                return
-
-            if self.action == "stop":
-                proc = self.process
-                if not proc:
-                    self.done.emit("stop", True, None, "")
-                    return
-                try:
-                    if proc.poll() is None:
-                        proc.terminate()
-                        try:
-                            proc.wait(timeout=5)
-                        except subprocess.TimeoutExpired:
-                            proc.kill()
-                            proc.wait(timeout=2)
-                    self.done.emit("stop", True, None, "")
-                except Exception as e:
-                    self.done.emit("stop", False, None, str(e))
-                return
-
-            self.done.emit(self.action, False, None, f"不支持的桥接操作: {self.action}")
-        except Exception as e:
-            self.done.emit(self.action, False, None, str(e))
+        return [config.name for config in self.voice_configs]
 
 
 class APIPageInterface(QWidget):
@@ -246,6 +149,10 @@ class APIPageInterface(QWidget):
         self.server_thread = None
         self.bridge_process = None  # 桥接服务进程
         self._bridge_workers = []
+        
+        from ui.stores.app_store import use_app_store
+        self.store = use_app_store()
+        
         self.init_ui()
         self.connect_signals()
         
@@ -391,11 +298,10 @@ class APIPageInterface(QWidget):
     
     def refresh_local_character_list(self):
         """从本地配置加载角色列表"""
-        if hasattr(self.main_window, 'voice_interface') and self.main_window.voice_interface:
-            characters = []
-            for config in self.main_window.voice_interface.voice_configs:
-                characters.append({'name': config.name, 'mode': config.mode})
-            self.update_character_list(characters)
+        characters = []
+        for config in self.store.voice_configs:
+            characters.append({'name': config.get("name", ""), 'mode': config.get("mode", "")})
+        self.update_character_list(characters)
     
     def show_api_doc(self):
         """显示 API 文档对话框"""
@@ -408,6 +314,9 @@ class APIPageInterface(QWidget):
         self.spk_cache_toggle_done.connect(self._on_spk_cache_toggle_done)
         self.bridge_start_done.connect(self._on_bridge_start_done)
         self.bridge_stop_done.connect(self._on_bridge_stop_done)
+        
+        # 响应全局角色库重载
+        self.store.voice_configs_changed.connect(self.refresh_local_character_list)
 
     def clear_logs(self):
         self.log_entries = []
@@ -504,6 +413,35 @@ class APIPageInterface(QWidget):
         if not t:
             return
 
+        # Prefer structured event payload and render Chinese message first.
+        if t.startswith("{") and t.endswith("}"):
+            try:
+                obj = json.loads(t)
+                if isinstance(obj, dict):
+                    level = str(obj.get("level") or "INFO").upper()
+                    if level == "WARNING":
+                        level = "WARN"
+                    if level not in {"INFO", "WARN", "ERROR", "OK"}:
+                        level = "INFO"
+                    module = str(obj.get("module") or "").strip()
+                    msg_zh = str(obj.get("msg_zh") or "").strip()
+                    msg_en = str(obj.get("msg_en") or "").strip()
+                    message = msg_zh or msg_en or str(obj.get("event") or "事件日志")
+                    request_id = str(obj.get("request_id") or "").strip()
+                    if module:
+                        message = f"[{module}] {message}"
+                    if request_id:
+                        message += f" (request_id={request_id})"
+                    timestamp = datetime.now().strftime("%H:%M:%S")
+                    self.log_entries.append((timestamp, level, message))
+                    self.log_view.append(self._format_log_html(timestamp, level, message))
+                    cursor = self.log_view.textCursor()
+                    cursor.movePosition(cursor.End)
+                    self.log_view.setTextCursor(cursor)
+                    return
+            except Exception:
+                pass
+
         level = self._extract_level(t)
         normalized = t
         prefix = f"[{level}]"
@@ -526,18 +464,15 @@ class APIPageInterface(QWidget):
             # 线程结束信号会处理 UI 更新
         else:
             # 启动服务
-            # 检查模型是否加载
+            # 尝试获取已加载的模型
             active_model = None
             try:
-                getter = getattr(self.main_window, "get_active_cosyvoice_model", None)
-                if callable(getter):
-                    active_model = getter()
+                if hasattr(self.main_window, "get_active_cosyvoice_model"):
+                    active_model = self.main_window.get_active_cosyvoice_model()
             except Exception:
-                active_model = None
-            if active_model is not None:
-                self.main_window.cosyvoice_model = active_model
-
-            if self.main_window.cosyvoice_model is None:
+                pass
+                
+            if active_model is None:
                 # 自动加载模型
                 self.log_received.emit("[INFO] 检测到模型未加载，正在自动加载模型...")
                 self.start_btn.setEnabled(False)
@@ -626,10 +561,15 @@ class APIPageInterface(QWidget):
         self._refresh_voices_cfg_label()
 
         try:
+            # 保证拿到的 active 模型传入给 API 服务
+            active_model = None
+            if hasattr(self.main_window, "get_active_cosyvoice_model"):
+                active_model = self.main_window.get_active_cosyvoice_model()
+                
             self.server_thread = APIServerThread(
                 host="0.0.0.0",
                 port=port,
-                model=self.main_window.cosyvoice_model,
+                model=active_model,
                 config_manager=runtime_config
             )
 
@@ -781,7 +721,7 @@ class APIPageInterface(QWidget):
         
         try:
             # 获取所有角色配置
-            voice_configs = self.main_window.voice_interface.get_voice_configs()
+            voice_configs = {c.get("name"): c for c in self.store.voice_configs}
         except Exception as e:
             voice_configs = {}
             self.log_received.emit(f"[WARN] 读取 voice 配置失败，使用空配置: {e}")
@@ -803,7 +743,7 @@ class APIPageInterface(QWidget):
             # If v2 voice doesn't carry mode, try to display legacy UI mode (display-only).
             if not mode and voice_id in voice_configs:
                 try:
-                    mode = str(getattr(voice_configs[voice_id], "mode", "") or "")
+                    mode = str(voice_configs[voice_id].get("mode", "") or "")
                 except Exception:
                     pass
 

@@ -7,6 +7,7 @@ from PyQt5.QtMultimedia import QMediaContent, QMediaPlayer
 from PyQt5.QtWidgets import (
     QAbstractItemView,
     QFileDialog,
+    QGridLayout,
     QHBoxLayout,
     QHeaderView,
     QMessageBox,
@@ -34,29 +35,14 @@ from qfluentwidgets import (
 
 from ..v2_client import V2Client, V2HttpError
 from ..theme.tokens import Metrics, Palette, Radius, Spacing
+from ..services.thread_worker import WorkerManager
+from ..stores.app_store import use_app_store
+from core.v2.asset_texts import get_asset_transcript_text
 
 
 CONTROL_H = Metrics.CONTROL_H
 TOOL_BTN_SZ = Metrics.CONTROL_H
 TABLE_ROW_H = Metrics.TABLE_ROW_H
-
-
-class ApiCallWorker(QThread):
-    ok = pyqtSignal(object)
-    err = pyqtSignal(object)
-
-    def __init__(self, fn, *args, **kwargs):
-        super().__init__()
-        self._fn = fn
-        self._args = args
-        self._kwargs = kwargs
-
-    def run(self):
-        try:
-            res = self._fn(*self._args, **self._kwargs)
-            self.ok.emit(res)
-        except Exception as e:
-            self.err.emit(e)
 
 
 class EmotionAssetsPanel(QWidget):
@@ -75,7 +61,8 @@ class EmotionAssetsPanel(QWidget):
     def __init__(self, client_factory: Callable[[], V2Client], parent=None):
         super().__init__(parent)
         self._client_factory = client_factory
-        self._workers: List[QThread] = []
+        self._worker_manager = WorkerManager(self)
+        self._store = use_app_store()
 
         self.character = ""
         self.emotion = "default"
@@ -168,16 +155,6 @@ class EmotionAssetsPanel(QWidget):
         return raw
 
     def _run(self, fn, on_ok, on_err):
-        w = ApiCallWorker(fn)
-        self._workers.append(w)
-
-        def _cleanup():
-            try:
-                self._workers.remove(w)
-            except Exception:
-                pass
-            w.deleteLater()
-
         def _ok(res: object):
             try:
                 on_ok(res)
@@ -193,11 +170,7 @@ class EmotionAssetsPanel(QWidget):
             except Exception as ee:
                 self._toast_err("内部错误", str(ee))
 
-        w.ok.connect(_ok)
-        w.err.connect(_err)
-        # Cleanup only after thread fully exits; avoids QThread destroyed-while-running race.
-        w.finished.connect(_cleanup)
-        w.start()
+        self._worker_manager.run_task(fn, on_ok=_ok, on_err=_err)
 
     def _begin_button_busy(self, btn: PushButton, busy_text: str) -> bool:
         try:
@@ -231,10 +204,13 @@ class EmotionAssetsPanel(QWidget):
             self.choose_file_btn,
             self.upload_btn,
             self.save_note_btn,
+            self.save_transcript_btn,
             self.asset_search,
             self.asset_filter_linked,
             self.asset_filter_language,
             self.asset_table,
+            self.note_edit,
+            self.transcript_edit,
         ]:
             try:
                 w.setEnabled(bool(enabled))
@@ -265,28 +241,29 @@ class EmotionAssetsPanel(QWidget):
         root.setContentsMargins(Spacing.LG, Spacing.LG, Spacing.LG, Spacing.LG)
         root.setSpacing(Spacing.MD)
 
+        # --- 头部：标题 + 精简操作按钮 ---
         header = QHBoxLayout()
         header.setSpacing(Spacing.SM)
-        title_right = SubtitleLabel("参考音频库（assets）")
-        title_right.setFont(QFont("", 18, QFont.Bold))
+        title_right = SubtitleLabel("参考音频库")
+        title_right.setFont(QFont("", 16, QFont.Bold))
         header.addWidget(title_right)
         header.addStretch()
 
-        self.bind_btn = PrimaryPushButton("绑定到当前 voice")
-        self.bind_btn.setFixedHeight(CONTROL_H)
-        self.bind_btn.setIcon(FluentIcon.LINK)
+        self.bind_btn = ToolButton(FluentIcon.LINK)
+        self.bind_btn.setFixedSize(TOOL_BTN_SZ, TOOL_BTN_SZ)
+        self.bind_btn.setToolTip("绑定到当前 voice")
         self.bind_btn.clicked.connect(self.bind_selected_assets)
         header.addWidget(self.bind_btn)
 
-        self.unbind_btn = PushButton("解绑")
-        self.unbind_btn.setFixedHeight(CONTROL_H)
-        self.unbind_btn.setIcon(FluentIcon.CLOSE)
+        self.unbind_btn = ToolButton(FluentIcon.CLOSE)
+        self.unbind_btn.setFixedSize(TOOL_BTN_SZ, TOOL_BTN_SZ)
+        self.unbind_btn.setToolTip("解绑")
         self.unbind_btn.clicked.connect(self.unbind_selected_assets)
         header.addWidget(self.unbind_btn)
 
-        self.play_btn = PushButton("试听")
-        self.play_btn.setFixedHeight(CONTROL_H)
-        self.play_btn.setIcon(FluentIcon.VOLUME)
+        self.play_btn = ToolButton(FluentIcon.VOLUME)
+        self.play_btn.setFixedSize(TOOL_BTN_SZ, TOOL_BTN_SZ)
+        self.play_btn.setToolTip("试听选中")
         self.play_btn.clicked.connect(self.play_selected_asset)
         header.addWidget(self.play_btn)
 
@@ -297,42 +274,66 @@ class EmotionAssetsPanel(QWidget):
         header.addWidget(self.more_btn)
         root.addLayout(header)
 
-        up = QHBoxLayout()
-        up.setSpacing(Spacing.SM)
-        up.addWidget(BodyLabel("语言"))
+        # --- 表单区域：使用 QGridLayout 严格对齐 ---
+        form = QGridLayout()
+        form.setContentsMargins(0, 0, 0, 0)
+        form.setHorizontalSpacing(Spacing.SM)
+        form.setVerticalSpacing(Spacing.SM)
+
+        # 第 0 行：语言 + 情绪标签
+        form.addWidget(BodyLabel("语言"), 0, 0, Qt.AlignRight | Qt.AlignVCenter)
         self.lang_combo = ComboBox()
         self.lang_combo.addItems(["zh", "en", "ja", "ko"])
         self.lang_combo.setCurrentText("zh")
         self.lang_combo.setFixedHeight(CONTROL_H)
-        up.addWidget(self.lang_combo)
-        up.addSpacing(Spacing.MD)
-        up.addWidget(BodyLabel("情绪标签"))
+        form.addWidget(self.lang_combo, 0, 1)
+
+        form.addWidget(BodyLabel("情绪"), 0, 2, Qt.AlignRight | Qt.AlignVCenter)
         self.emotion_edit = LineEdit()
         self.emotion_edit.setReadOnly(True)
         self.emotion_edit.setFixedHeight(CONTROL_H)
-        up.addWidget(self.emotion_edit, 1)
-        self.choose_file_btn = ToolButton(FluentIcon.FOLDER)
-        self.choose_file_btn.setFixedSize(TOOL_BTN_SZ, TOOL_BTN_SZ)
-        self.choose_file_btn.clicked.connect(self.choose_upload_file)
-        up.addWidget(self.choose_file_btn)
-        self.upload_btn = PrimaryPushButton("上传")
-        self.upload_btn.setFixedHeight(CONTROL_H)
-        self.upload_btn.clicked.connect(self.upload_ref_audio)
-        up.addWidget(self.upload_btn)
-        root.addLayout(up)
+        form.addWidget(self.emotion_edit, 0, 3)
 
-        note_row = QHBoxLayout()
-        note_row.setSpacing(Spacing.SM)
-        note_row.addWidget(BodyLabel("备注"))
+        # 第 1 行：备注
+        form.addWidget(BodyLabel("备注"), 1, 0, Qt.AlignRight | Qt.AlignVCenter)
         self.note_edit = LineEdit()
         self.note_edit.setPlaceholderText("可选，用于搜索")
         self.note_edit.setFixedHeight(CONTROL_H)
-        note_row.addWidget(self.note_edit, 1)
+        form.addWidget(self.note_edit, 1, 1, 1, 2)
         self.save_note_btn = PushButton("保存备注")
         self.save_note_btn.setFixedHeight(CONTROL_H)
         self.save_note_btn.clicked.connect(self.save_selected_asset_note)
-        note_row.addWidget(self.save_note_btn)
-        root.addLayout(note_row)
+        form.addWidget(self.save_note_btn, 1, 3)
+
+        # 第 2 行：参考文本（用于推理）
+        form.addWidget(BodyLabel("参考文本"), 2, 0, Qt.AlignRight | Qt.AlignVCenter)
+        self.transcript_edit = LineEdit()
+        self.transcript_edit.setPlaceholderText("用于推理的参考文本（建议与音频内容一致）")
+        self.transcript_edit.setFixedHeight(CONTROL_H)
+        form.addWidget(self.transcript_edit, 2, 1, 1, 2)
+        self.save_transcript_btn = PushButton("保存参考文本")
+        self.save_transcript_btn.setFixedHeight(CONTROL_H)
+        self.save_transcript_btn.clicked.connect(self.save_selected_asset_transcript)
+        form.addWidget(self.save_transcript_btn, 2, 3)
+
+        # 第 3 行：上传文件
+        form.addWidget(BodyLabel("上传"), 3, 0, Qt.AlignRight | Qt.AlignVCenter)
+        self.choose_file_btn = PushButton("选择文件")
+        self.choose_file_btn.setIcon(FluentIcon.FOLDER)
+        self.choose_file_btn.setFixedHeight(CONTROL_H)
+        self.choose_file_btn.clicked.connect(self.choose_upload_file)
+        form.addWidget(self.choose_file_btn, 3, 1, 1, 2)
+        self.upload_btn = PrimaryPushButton("上传")
+        self.upload_btn.setFixedHeight(CONTROL_H)
+        self.upload_btn.clicked.connect(self.upload_ref_audio)
+        form.addWidget(self.upload_btn, 3, 3)
+
+        # 设置列伸缩比例：标签列固定窄，输入列自适应
+        form.setColumnStretch(0, 0)
+        form.setColumnStretch(1, 2)
+        form.setColumnStretch(2, 0)
+        form.setColumnStretch(3, 3)
+        root.addLayout(form)
 
         self.file_label = BodyLabel("未选择文件（也可以把音频文件拖拽到窗口中）")
         self.file_label.setStyleSheet(f"color: {Palette.TEXT_SECONDARY};")
@@ -344,7 +345,7 @@ class EmotionAssetsPanel(QWidget):
         filter_row = QHBoxLayout()
         filter_row.setSpacing(Spacing.SM)
         self.asset_search = SearchLineEdit(self)
-        self.asset_search.setPlaceholderText("搜索 备注/路径/资源ID")
+        self.asset_search.setPlaceholderText("搜索 参考文本/备注/路径/资源ID")
         self.asset_search.setFixedHeight(CONTROL_H)
         self.asset_search.textChanged.connect(self._apply_asset_filters)
         filter_row.addWidget(self.asset_search, 1)
@@ -375,7 +376,7 @@ class EmotionAssetsPanel(QWidget):
 
         self.asset_table = TableWidget()
         self.asset_table.setColumnCount(7)
-        self.asset_table.setHorizontalHeaderLabels(["资源ID", "语言", "备注", "时间", "路径", "绑定", "操作"])
+        self.asset_table.setHorizontalHeaderLabels(["资源ID", "语言", "参考文本", "时间", "路径", "绑定", "操作"])
         self.asset_table.verticalHeader().setVisible(False)
         self.asset_table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.asset_table.customContextMenuRequested.connect(self._show_assets_context_menu)
@@ -409,28 +410,35 @@ class EmotionAssetsPanel(QWidget):
                 pass
 
         self._set_enabled(False)
-        card_bg = Palette.card_theme()
-        text_primary = Palette.text_primary_theme()
+        
+        self._store.theme_changed.connect(lambda _: self._apply_page_styles())
+        self._apply_page_styles()
+        
+    def _apply_page_styles(self):
+        card_bg = Palette.card()
+        text_primary = Palette.text_primary()
         table_alt = Palette.table_alt_bg()
         table_selected = Palette.table_selected_bg()
+        border_col = Palette.border()
+        
         self.setStyleSheet(
             f"""
             QWidget {{
                 font-family: 'Segoe UI', 'PingFang SC', sans-serif;
             }}
             QTableView {{
-                border: 1px solid {Palette.BORDER};
+                border: 1px solid {border_col};
                 border-radius: {Radius.PANEL}px;
                 background: {card_bg};
                 alternate-background-color: {table_alt};
-                gridline-color: {Palette.BORDER};
+                gridline-color: {border_col};
             }}
             QTableView::item:selected {{
                 background: {table_selected};
                 color: {text_primary};
             }}
             QLineEdit {{
-                border: 1px solid {Palette.BORDER};
+                border: 1px solid {border_col};
                 border-radius: {Radius.CONTROL}px;
                 padding: 0 10px;
                 background: {card_bg};
@@ -551,6 +559,8 @@ class EmotionAssetsPanel(QWidget):
                 hay = " ".join(
                     [
                         str(it.get("asset_id") or ""),
+                        str(get_asset_transcript_text(it) or ""),
+                        str(it.get("prompt_text") or ""),
                         str(it.get("note") or ""),
                         str(it.get("path") or ""),
                         str(it.get("created_at") or ""),
@@ -578,11 +588,11 @@ class EmotionAssetsPanel(QWidget):
                 it = {}
             aid = str(it.get("asset_id") or "")
             language = str(it.get("language") or "")
-            note = str(it.get("note") or "")
+            transcript = str(get_asset_transcript_text(it) or "")
             created_at = str(it.get("created_at") or "")
             path = str(it.get("path") or "")
             linked = "已绑定" if it.get("linked") else "未绑定"
-            values = [aid, language, note, created_at, path, linked]
+            values = [aid, language, transcript, created_at, path, linked]
             for col, v in enumerate(values):
                 item = QTableWidgetItem(str(v))
                 item.setFont(font_id if col == 0 else font2)
@@ -651,6 +661,14 @@ class EmotionAssetsPanel(QWidget):
             rows = {idx.row() for idx in self.asset_table.selectedIndexes()}
             if len(rows) != 1:
                 self._selected_asset_id = ""
+                try:
+                    self.note_edit.blockSignals(True)
+                    self.note_edit.setText("")
+                    self.transcript_edit.blockSignals(True)
+                    self.transcript_edit.setText("")
+                finally:
+                    self.note_edit.blockSignals(False)
+                    self.transcript_edit.blockSignals(False)
                 self.selected_asset_changed.emit(None)
                 return
             row = list(rows)[0]
@@ -659,12 +677,16 @@ class EmotionAssetsPanel(QWidget):
                 it = {}
             aid = str(it.get("asset_id") or "").strip()
             note = str(it.get("note") or "").strip()
+            transcript = str(get_asset_transcript_text(it) or "").strip()
             self._selected_asset_id = aid
             try:
                 self.note_edit.blockSignals(True)
                 self.note_edit.setText(note)
+                self.transcript_edit.blockSignals(True)
+                self.transcript_edit.setText(transcript)
             finally:
                 self.note_edit.blockSignals(False)
+                self.transcript_edit.blockSignals(False)
             self.selected_asset_changed.emit(dict(it))
         except Exception:
             return
@@ -750,10 +772,18 @@ class EmotionAssetsPanel(QWidget):
         self.choose_file_btn.setEnabled(False)
         lang = str(self.lang_combo.currentText() or "zh").strip() or "zh"
         note = (self.note_edit.text() or "").strip()
+        transcript_text = (self.transcript_edit.text() or "").strip()
 
         def _do():
             cli = self._client()
-            meta = cli.upload_asset(file_path=fp, character=self.character, emotion=self.emotion, language=lang, note=note)
+            meta = cli.upload_asset(
+                file_path=fp,
+                character=self.character,
+                emotion=self.emotion,
+                language=lang,
+                note=note,
+                transcript_text=transcript_text,
+            )
             aid = str((meta or {}).get("asset_id") or "").strip()
             if aid:
                 if self._manage_voice_binding_locally:
@@ -802,16 +832,13 @@ class EmotionAssetsPanel(QWidget):
             self._toast_warn("提示", "请先选择一个参考音频")
             return
 
-        note = (self.note_edit.text() or "").strip()
-        if not note:
-            self._toast_warn("提示", "备注不能为空")
-            return
         if not self._begin_button_busy(self.save_note_btn, "保存中..."):
             return
 
         def _do():
             cli = self._client()
-            return cli.update_asset(aid, {"note": note, "prompt_text": note})
+            note = (self.note_edit.text() or "").strip()
+            return cli.update_asset(aid, {"note": note})
 
         def _ok(_):
             self._toast_ok("已保存备注", aid)
@@ -821,6 +848,38 @@ class EmotionAssetsPanel(QWidget):
         def _err(msg: str):
             self._toast_err("保存备注失败", msg)
             self._end_button_busy(self.save_note_btn)
+
+        self._run(_do, _ok, _err)
+
+    def save_selected_asset_transcript(self):
+        aid = (self._selected_asset_id or "").strip()
+        if not aid:
+            aids = self._selected_asset_ids()
+            aid = aids[0] if aids else ""
+        if not aid:
+            self._toast_warn("提示", "请先选择一个参考音频")
+            return
+
+        transcript_text = (self.transcript_edit.text() or "").strip()
+        if not transcript_text:
+            self._toast_warn("提示", "参考文本不能为空")
+            return
+        if not self._begin_button_busy(self.save_transcript_btn, "保存中..."):
+            return
+
+        def _do():
+            cli = self._client()
+            # Keep legacy prompt_text synchronized for backward compatibility.
+            return cli.update_asset(aid, {"transcript_text": transcript_text, "prompt_text": transcript_text})
+
+        def _ok(_):
+            self._toast_ok("已保存参考文本", aid)
+            self.refresh_assets()
+            self._end_button_busy(self.save_transcript_btn)
+
+        def _err(msg: str):
+            self._toast_err("保存参考文本失败", msg)
+            self._end_button_busy(self.save_transcript_btn)
 
         self._run(_do, _ok, _err)
 

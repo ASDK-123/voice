@@ -10,6 +10,7 @@ from core.synthesis.normalize import (
 )
 from core.synthesis.resolve_voice import parse_voice_id
 from core.synthesis.select_ref import select_ref_asset_id
+from core.v2.asset_texts import resolve_prompt_text_voice_first
 
 
 class TestSynthesisNormalization(unittest.TestCase):
@@ -107,6 +108,18 @@ class TestSynthesisNormalization(unittest.TestCase):
 
         k = build_cache_identity(**{**common, "selected_ref_asset_id": "ref_y"})
         self.assertNotEqual(x["request_hash"], k["request_hash"])
+
+    def test_prompt_resolution_order_voice_first(self):
+        text, src = resolve_prompt_text_voice_first(
+            "voice_text",
+            {"transcript_text": "asset_text", "prompt_text": "legacy_text", "note": "n"},
+        )
+        self.assertEqual(text, "voice_text")
+        self.assertEqual(src, "voice.prompt_text")
+
+        text2, src2 = resolve_prompt_text_voice_first("", {"transcript_text": "asset_text"})
+        self.assertEqual(text2, "asset_text")
+        self.assertEqual(src2, "asset.transcript_text")
 
 
 if __name__ == "__main__":

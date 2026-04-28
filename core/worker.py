@@ -1,6 +1,7 @@
 import sys
 import os
 import io
+import uuid
 import torch
 import random
 import torchaudio
@@ -116,7 +117,7 @@ class ModelUnloaderThread(QThread):
 class AudioGenerationWorker(QThread):
     """Generate audio segments in worker thread."""
     progress = pyqtSignal(str)
-    finished = pyqtSignal(list)
+    generation_finished = pyqtSignal(list)
     error = pyqtSignal(str)
     segment_finished = pyqtSignal(int, list)
     
@@ -235,7 +236,7 @@ class AudioGenerationWorker(QThread):
                 self.segment_finished.emit(segment.index, segment_files)
 
             if self.is_running:
-                self.finished.emit(all_generated_files)
+                self.generation_finished.emit(all_generated_files)
 
         except Exception as e:
             self.error.emit(f"Generation failed: {str(e)}")
@@ -550,7 +551,7 @@ class V2AudioGenerationWorker(QThread):
     """
 
     progress = pyqtSignal(str)
-    finished = pyqtSignal(list)
+    generation_finished = pyqtSignal(list)
     error = pyqtSignal(str)
     segment_finished = pyqtSignal(int, list)
 
@@ -632,7 +633,11 @@ class V2AudioGenerationWorker(QThread):
                 }
 
                 url = f"{self.base_url}/api/v2/synthesize"
-                r = requests.post(url, json=payload, headers=self._headers(), timeout=self.timeout_s)
+                req_id = "req_" + uuid.uuid4().hex[:16]
+                headers = self._headers()
+                headers["X-Request-Id"] = req_id
+                self.progress.emit(f"[v2] request_id={req_id}")
+                r = requests.post(url, json=payload, headers=headers, timeout=self.timeout_s)
                 if r.status_code >= 400:
                     # Try to parse structured error.
                     try:
@@ -657,7 +662,7 @@ class V2AudioGenerationWorker(QThread):
                 self.progress.emit(f"[v2] output: {filename}")
 
             if self.is_running:
-                self.finished.emit(all_generated_files)
+                self.generation_finished.emit(all_generated_files)
 
         except Exception as e:
             self.error.emit(f"v2 synthesis failed: {str(e)}")

@@ -22,11 +22,8 @@ os.environ["TQDM_DISABLE"] = "1"
 warnings.filterwarnings("ignore")
 
 import torch
-print(f"CUDA Available: {torch.cuda.is_available()}")
-if torch.cuda.is_available():
-    print(f"GPU: {torch.cuda.get_device_name(0)}")
-else:
-    print("WARNING: Running on CPU! This will be very slow.")
+_CUDA_AVAILABLE = torch.cuda.is_available()
+_GPU_NAME = torch.cuda.get_device_name(0) if _CUDA_AVAILABLE else ""
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(ROOT_DIR, '..'))
@@ -34,7 +31,7 @@ sys.path.insert(0, os.path.join(ROOT_DIR, '../third_party/AcademiCodec'))
 sys.path.insert(0, os.path.join(ROOT_DIR, '../third_party/Matcha-TTS'))
 
 import numpy as np
-from flask import Flask, request, Response, stream_with_context, g
+from flask import Flask, request, Response, stream_with_context, g, send_from_directory
 import torch
 import torchaudio
 
@@ -82,19 +79,29 @@ except Exception:
 
 # v2 helpers (request_id, errors, sqlite assets store)
 from core.v2.assets_sqlite import AssetsSqliteStore
+from core.v2.asset_texts import resolve_prompt_text_voice_first
 from core.v2.errors import AppError, coerce_exception
 from core.v2.http import install_middleware as _v2_install_http, json_ok as _v2_http_ok, json_error as _v2_http_error
 from core.v2.logging import log_event as _v2_log_event
 from core.v2.request_id import pick_request_id as _v2_pick_request_id
 from core.api_v2_routes import create_v2_blueprint as _create_v2_blueprint
 from core.server.routes_v2_misc import create_v2_misc_blueprint as _create_v2_misc_blueprint
+from core.server.routes_v2_logs import create_v2_logs_blueprint as _create_v2_logs_blueprint
+from core.logging import emit_event as _emit_log_event
+from core.logging import get_logger as _get_runtime_logger
+from core.logging import init_logging as _init_runtime_logging
+from core.logging import install_crash_handlers as _install_crash_handlers
+from scripts.export_diagnostic_bundle import export_bundle as _export_diagnostic_bundle
 
 # ==================== Logging ====================
 
+_init_runtime_logging()
+_install_crash_handlers()
+
 # Dedicated API logger.
-api_logger = logging.getLogger('cosyvoice_api')
+api_logger = _get_runtime_logger('cosyvoice_api')
 api_logger.setLevel(logging.INFO)
-api_logger.propagate = False  # Avoid duplicate logs through root logger.
+api_logger.propagate = True
 
 # Silence noisy third-party logs.
 logging.getLogger('cosyvoice').setLevel(logging.ERROR)
@@ -111,6 +118,10 @@ class CallbackHandler(logging.Handler):
     """Emit formatted log lines to registered callbacks."""
     def emit(self, record):
         msg = self.format(record)
+        # UI panel should prefer unified human lines; skip compatibility JSON echoes.
+        t = str(msg or "").strip()
+        if t.startswith("{") and '"event"' in t and '"request_id"' in t:
+            return
         for callback in log_callbacks:
             try:
                 callback(msg)
@@ -122,10 +133,21 @@ callback_handler = CallbackHandler()
 callback_handler.setFormatter(logging.Formatter('%(message)s'))
 api_logger.addHandler(callback_handler)
 
-# Console handler.
-console_handler = logging.StreamHandler()
-console_handler.setFormatter(logging.Formatter('[%(name)s] %(message)s'))
-api_logger.addHandler(console_handler)
+if _CUDA_AVAILABLE:
+    api_logger.info(f"CUDA Available: True, GPU: {_GPU_NAME}")
+else:
+    api_logger.warning("CUDA Available: False, 当前使用 CPU 推理，速度会较慢")
+try:
+    _emit_log_event(
+        logger=api_logger,
+        level="INFO",
+        module="api",
+        event="APP_START",
+        msg_zh="API 模块初始化",
+        fields={"version": "1.4"},
+    )
+except Exception:
+    pass
 
 def set_log_callback(callback):
     """Register a log callback used by desktop UI."""
@@ -296,10 +318,10 @@ def run_ffmpeg(input_file: str, output_file: str, args: list = None):
         subprocess.run(cmd, capture_output=True, check=True)
         return True
     except subprocess.CalledProcessError as e:
-        print(f"ERROR: FFmpeg error: {e.stderr.decode()}")
+        api_logger.error(f"FFmpeg 执行失败: {e.stderr.decode(errors='ignore')}")
         return False
     except FileNotFoundError:
-        print("ERROR: FFmpeg not found in system PATH. Please install FFmpeg.")
+        api_logger.error("未找到 ffmpeg，请安装并加入系统 PATH")
         return False
 
 
@@ -316,7 +338,7 @@ def speed_change_ffmpeg(input_audio_path: str, speed: float, output_path: str) -
         True if succeeded, False otherwise.
     """
     if speed < 0.5 or speed > 2.0:
-        print("WARNING: Speed out of range [0.5-2.0], clamping to valid range")
+        api_logger.warning("speed 超出 [0.5-2.0]，已自动裁剪")
         speed = max(0.5, min(2.0, speed))
     
     # FFmpeg atempo is used for speed transform.
@@ -352,7 +374,7 @@ def set_globals(model, config_manager):
     global cosyvoice, character_config
     cosyvoice = model
     character_config = config_manager
-    print("INFO: API globals set from external source")
+    api_logger.info("API globals set from external source")
 
 # ==================== Flask App ====================
 
@@ -667,10 +689,17 @@ def _v2_prepare_char_config(req: dict) -> dict:
                 cfg['prompt_audio'] = meta.get('path', cfg.get('prompt_audio', ''))
                 cfg['prompt_audio_asset_id'] = selected_ref_asset_id
                 cfg['prompt_audio_sha1'] = meta.get('sha1', '')
-                asset_prompt_text = (meta.get('prompt_text') or meta.get('note') or '')
-                asset_prompt_text = (asset_prompt_text or '').strip()
-                if asset_prompt_text:
-                    cfg['prompt_text'] = asset_prompt_text
+                resolved_prompt_text, src = resolve_prompt_text_voice_first(
+                    str(cfg.get("prompt_text") or ""),
+                    meta,
+                )
+                if src == "asset.prompt_text":
+                    try:
+                        api_logger.warning(f"[v2] synth using legacy asset.prompt_text: voice={cfg.get('name','')} asset={selected_ref_asset_id}")
+                    except Exception:
+                        pass
+                if resolved_prompt_text:
+                    cfg['prompt_text'] = resolved_prompt_text
 
         cfg['selected_ref_asset_id'] = selected_ref_asset_id
         return cfg
@@ -1067,7 +1096,7 @@ def tts_tavern():
         return Response(result.wav_bytes, mimetype='audio/wav')
     
     except Exception as e:
-        print(f"ERROR: Error in POST /: {e}")
+        api_logger.error(f"POST / 处理失败: {e}")
         import traceback
         traceback.print_exc()
         error_msg = f'request exception: {str(e)[:100]}'
@@ -1222,7 +1251,7 @@ def tts_api():
         return Response(result.wav_bytes, mimetype='audio/wav')
     
     except Exception as e:
-        print(f"ERROR: Error in /api/tts: {e}")
+        api_logger.error(f"/api/tts 处理失败: {e}")
         import traceback
         traceback.print_exc()
         error_msg = f'request exception: {str(e)[:100]}'
@@ -1254,7 +1283,7 @@ def list_characters():
         )
         return response
     except Exception as e:
-        print(f"ERROR: Error in /api/characters: {e}")
+        api_logger.error(f"/api/characters 处理失败: {e}")
         response = app.response_class(
             response=json.dumps({'error': str(e)}),
             status=500,
@@ -1298,7 +1327,7 @@ def get_speakers():
         response.headers['Access-Control-Allow-Origin'] = '*'
         return response
     except Exception as e:
-        print(f"ERROR: Error in /speakers: {e}")
+        api_logger.error(f"/speakers 处理失败: {e}")
         response = app.response_class(
             response=json.dumps({'error': str(e)}),
             status=500,
@@ -1591,10 +1620,26 @@ _v2_routes_ctx = SimpleNamespace(
     v2_compute_cache_key=_v2_compute_cache_key,
     v2_run_engine=_v2_run_engine,
     v2_register_file_as_asset=_v2_register_file_as_asset,
+    # Avoid module import ordering issues: use the already-available default resolver here.
+    v2_voices_config_path=_resolve_default_voices_config_path(),
+    v2_assets_db_path=V2_DB_PATH,
+    v2_assets_dir=V2_AUDIO_DIR,
+    log_dir=os.path.join(DATA_ROOT, 'logs'),
+    export_diagnostic_bundle=_export_diagnostic_bundle,
 )
 app.register_blueprint(_create_v2_blueprint(_v2_routes_ctx), url_prefix="/api/v2")
 # Register misc v2 routes (health / metrics / synth) via server blueprint.
 app.register_blueprint(_create_v2_misc_blueprint(_v2_routes_ctx))
+app.register_blueprint(_create_v2_logs_blueprint(_v2_routes_ctx))
+
+# 暴露 output/ 目录下的音频文件供前端直接访问
+_OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "output")
+_OUTPUT_DIR = os.path.abspath(_OUTPUT_DIR)
+
+@app.route('/assets/output/<path:filename>')
+def serve_output(filename):
+    """提供 output/ 目录下音频文件的 HTTP 静态访问。"""
+    return send_from_directory(_OUTPUT_DIR, filename)
 
 
 # ==================== 鎺ㄧ悊鏍稿績閫昏緫 ====================
@@ -1797,7 +1842,7 @@ def resolve_config_file(config_file: str) -> str:
 
 def _warmup_model_once() -> None:
     global cosyvoice, character_config
-    print("🔥 Warming up model (reducing first-request latency)...")
+    api_logger.info("模型预热开始")
     try:
         if character_config is None or cosyvoice is None:
             return
@@ -1814,9 +1859,9 @@ def _warmup_model_once() -> None:
             if "<|endofprompt|>" not in prompt_text:
                 prompt_text = f"You are a helpful assistant.<|endofprompt|>{prompt_text}"
         cosyvoice.inference_zero_shot("你好", prompt_text, prompt_audio, stream=False)
-        print("✅ Warmup completed!")
+        api_logger.info("模型预热完成")
     except Exception as e:
-        print(f"⚠️ Warmup failed (non-fatal): {e}")
+        api_logger.warning(f"模型预热失败（不影响服务运行）: {e}")
 
 
 def initialize_runtime(*, config_file: str, min_text_length: int = 0, warmup: bool = True):
@@ -1832,9 +1877,9 @@ def initialize_runtime(*, config_file: str, min_text_length: int = 0, warmup: bo
 
 
 def run_server(*, app, host: str, port: int, debug: bool) -> None:
-    print("\n🚀 Starting CosyVoice3 API Server...")
-    print(f"🔗 Host: {host}:{port}")
-    print(f"🔎 Health check: http://{host}:{port}/api/health")
+    api_logger.info("CosyVoice3 API Server 启动")
+    api_logger.info(f"Host: {host}:{port}")
+    api_logger.info(f"Health: http://{host}:{port}/api/health")
     cli = sys.modules.get("flask.cli")
     if cli is not None:
         cli.show_server_banner = lambda *x: None
@@ -1847,7 +1892,7 @@ def main(argv=None) -> int:
     try:
         cfg = resolve_config_file(args.config)
     except Exception as e:
-        print(f"❌ Error: {e}")
+        api_logger.error(f"启动参数错误: {e}")
         return 1
     try:
         initialize_runtime(config_file=cfg, min_text_length=int(args.min_text_length), warmup=True)

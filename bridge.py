@@ -3,18 +3,29 @@ import requests
 import threading
 import sys
 import uuid
+from core.logging import emit_event, get_logger, init_logging, install_crash_handlers
 
 # ================= 配置区域 =================
 COSYVOICE_URL = "http://127.0.0.1:9880"
 # ===========================================
 
 app = Flask(__name__)
+init_logging()
+install_crash_handlers()
+logger = get_logger("bridge")
 
 # 全局锁：真正的线程锁
 # 确保同一时间只有一个请求能通过
 PROCESS_LOCK = threading.Lock()
 
-print(f"[Bridge] Flask 桥接服务启动 (同步多线程模式) -> {COSYVOICE_URL}")
+emit_event(
+    logger=logger,
+    level="INFO",
+    module="bridge",
+    event="BRG_START",
+    msg_zh="Bridge 服务启动",
+    fields={"target": COSYVOICE_URL},
+)
 
 @app.route('/health', methods=['GET'])
 def health_check():
@@ -28,9 +39,9 @@ def health_check():
 @app.route('/v1/audio/speech', methods=['POST'])
 def openai_to_cosyvoice():
     # 1. 手动获取锁（阻塞等待）
-    print(f"[Bridge] 线程 {threading.get_ident()} 等待获取锁...")
+    logger.info(f"[INFO] 线程 {threading.get_ident()} 等待获取锁...")
     PROCESS_LOCK.acquire()
-    print(f"[Bridge] 线程 {threading.get_ident()} 已获取锁，开始处理")
+    logger.info(f"[INFO] 线程 {threading.get_ident()} 已获取锁，开始处理")
     
     try:
         data = request.get_json()
@@ -42,7 +53,16 @@ def openai_to_cosyvoice():
         voice_name = data.get("voice", "胡桃")
         
         import time
-        print(f"[IN] [{time.strftime('%H:%M:%S')}] 收到请求: Len={len(input_text)} | Voice={voice_name} | Text={input_text[:50]}...")
+        req_id = request.headers.get("X-Request-Id") or f"req_{uuid.uuid4().hex[:16]}"
+        emit_event(
+            logger=logger,
+            level="INFO",
+            module="bridge",
+            event="API_REQ_START",
+            request_id=req_id,
+            msg_zh="Bridge 收到语音请求",
+            fields={"method": "POST", "path": "/v1/audio/speech", "voice_id": voice_name, "text_len": len(input_text)},
+        )
 
         speed = data.get("speed", 1.0) or 1.0
         try:
@@ -50,7 +70,6 @@ def openai_to_cosyvoice():
         except Exception:
             speed = 1.0
 
-        req_id = request.headers.get("X-Request-Id") or f"req_{uuid.uuid4().hex[:16]}"
         headers = {"X-Request-Id": req_id}
 
         payload = {
@@ -66,16 +85,40 @@ def openai_to_cosyvoice():
             v2_url = COSYVOICE_URL.rstrip("/") + "/api/v2/synthesize"
             resp = requests.post(v2_url, json=payload, headers=headers, stream=True, timeout=120)
         except Exception as e:
-            print(f"[ERROR] 连接后端失败: {e}")
+            emit_event(
+                logger=logger,
+                level="ERROR",
+                module="bridge",
+                event="API_REQ_FAIL",
+                request_id=req_id,
+                msg_zh="Bridge 连接后端失败",
+                fields={"method": "POST", "path": "/api/v2/synthesize", "status": 502, "error_code": "bridge_upstream_connect_error", "reason": str(e)},
+            )
             if PROCESS_LOCK.locked(): PROCESS_LOCK.release()
             return jsonify({"error": str(e)}), 502
 
         if resp.status_code != 200:
-            print(f"[ERROR] 后端拒绝: {resp.status_code} - {resp.text}")
+            emit_event(
+                logger=logger,
+                level="ERROR",
+                module="bridge",
+                event="API_REQ_FAIL",
+                request_id=req_id,
+                msg_zh="Bridge 上游返回错误",
+                fields={"method": "POST", "path": "/api/v2/synthesize", "status": int(resp.status_code), "error_code": "bridge_upstream_http_error"},
+            )
             if PROCESS_LOCK.locked(): PROCESS_LOCK.release()
             return jsonify({"error": resp.text}), resp.status_code
 
-        print(f"[OK] 开始流式传输...")
+        emit_event(
+            logger=logger,
+            level="INFO",
+            module="bridge",
+            event="API_REQ_END",
+            request_id=req_id,
+            msg_zh="Bridge 请求上游成功，开始传输音频流",
+            fields={"method": "POST", "path": "/api/v2/synthesize", "status": 200, "duration_ms": 0},
+        )
 
         # 3. 定义流生成器（负责释放锁）
         def generate():
@@ -84,23 +127,38 @@ def openai_to_cosyvoice():
                     if chunk:
                         yield chunk
             except Exception as e:
-                print(f"[ERROR] 流传输异常: {e}")
+                emit_event(
+                    logger=logger,
+                    level="ERROR",
+                    module="bridge",
+                    event="BRG_STREAM_FAIL",
+                    request_id=req_id,
+                    msg_zh="Bridge 音频流传输异常",
+                    fields={"reason": str(e)},
+                )
             finally:
                 resp.close()
                 # 【核心】：在生成器结束时释放锁
                 # 无论流传输成功还是网络中断，都会执行这里
                 if PROCESS_LOCK.locked():
                     PROCESS_LOCK.release()
-                    print(f"[Bridge] 锁已释放 (线程 {threading.get_ident()})")
+                    logger.info(f"[INFO] 锁已释放 (线程 {threading.get_ident()})")
 
         return Response(generate(), mimetype='audio/wav')
 
     except Exception as e:
-        print(f"[ERROR] 全局异常: {e}")
+        emit_event(
+            logger=logger,
+            level="ERROR",
+            module="bridge",
+            event="CRH_UNCAUGHT",
+            msg_zh="Bridge 处理请求时发生未处理异常",
+            fields={"error_type": type(e).__name__, "message": str(e)},
+        )
         # 兜底释放锁
         if PROCESS_LOCK.locked():
             PROCESS_LOCK.release()
-            print("[Bridge] 异常释放锁")
+            logger.warning("[WARN] 异常释放锁")
         return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":

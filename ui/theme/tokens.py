@@ -5,10 +5,8 @@ def _is_dark_theme() -> bool:
     except Exception:
         return False
 
-
 def _pick(light: str, dark: str) -> str:
     return str(dark if _is_dark_theme() else light)
-
 
 class Spacing:
     XS = 4
@@ -18,19 +16,42 @@ class Spacing:
     XL = 20
     XXL = 24
 
-
 class Radius:
-    CONTROL = 10
-    PANEL = 14
-
+    CONTROL = 6
+    PANEL = 10
 
 class Typography:
     TITLE_SIZE = 24
     BODY_SIZE = 13
     CAPTION_SIZE = 11
 
-
 class Palette:
+    # 动态调色板 (Apple 语义化)
+    @classmethod
+    def bg(cls) -> str: return _pick("#F5F6F7", "#000000")
+    
+    @classmethod
+    def card(cls) -> str: return _pick("#FFFFFF", "#1E1E1E")
+    
+    @classmethod
+    def border(cls) -> str: return _pick("#E6E8EB", "#333336")
+    
+    @classmethod
+    def text_primary(cls) -> str: return _pick("#1D1D1F", "#F5F5F7")
+    
+    @classmethod
+    def text_secondary(cls) -> str: return _pick("#86868B", "#A1A1A6")
+    
+    @classmethod
+    def text_muted(cls) -> str: return _pick("#86868B", "#86868B")
+    
+    @classmethod
+    def accent(cls) -> str: return _pick("#0066CC", "#2997FF")
+    
+    @classmethod
+    def tag_bg(cls) -> str: return _pick("#F5F5F7", "#2C2C2E")
+
+    # 旧代码兼容接口 (Deprecated: 不具有热切换能力)
     BG = "#F5F6F7"
     CARD = "#FFFFFF"
     BORDER = "#E6E8EB"
@@ -48,11 +69,11 @@ class Palette:
 
     @staticmethod
     def text_primary_theme() -> str:
-        return _pick("#1D1D1F", "#F3F4F6")
+        return _pick("#1D1D1F", "#F5F5F7")
 
     @staticmethod
     def text_secondary_theme() -> str:
-        return _pick("#6E6E73", "#C8CDD4")
+        return _pick("#86868B", "#A1A1A6")
 
     @staticmethod
     def card_theme() -> str:
@@ -60,36 +81,33 @@ class Palette:
 
     @staticmethod
     def table_alt_bg() -> str:
-        return _pick("#FAFBFC", "#262A2F")
+        return _pick("#FAFBFC", "#1C1C1E")
 
     @staticmethod
     def table_selected_bg() -> str:
-        return _pick("#EFF6FF", "#2B3C50")
+        return _pick("#E8F2FF", "#0040DD")
 
     @staticmethod
     def log_badge_bg(level: str) -> str:
         lv = str(level or "").upper()
         if lv == "ERROR":
-            return _pick("#FDECEC", "#4A2326")
+            return _pick("#FDECEC", "#3D1A1A")
         if lv == "WARN":
-            return _pick("#FFF4E5", "#4C3A1F")
+            return _pick("#FFF4E5", "#3D2E15")
         if lv == "OK":
-            return _pick("#E9F8EF", "#1F4B32")
-        return _pick("#EAF6FF", "#1F3E52")
-
+            return _pick("#E9F8EF", "#1A3D24")
+        return _pick("#EAF6FF", "#18324D")
 
 class Metrics:
     TOOLBAR_H = 56
-    CONTROL_H = 36
-    TABLE_ROW_H = 40
-    INSPECTOR_W_MIN = 400
-    INSPECTOR_W_DEFAULT = 480
-    INSPECTOR_W_MAX = 640
-
+    CONTROL_H = 34
+    TABLE_ROW_H = 44
+    INSPECTOR_W_MIN = 320
+    INSPECTOR_W_DEFAULT = 400
+    INSPECTOR_W_MAX = 560
 
 class Table:
     COLUMN_GAP_DENSE = 4
-
 
 class StatusChip:
     HEIGHT = 22
@@ -99,5 +117,5 @@ class StatusChip:
     WARN_TEXT = "#D97706"
     MISSING_BG = "#FDECEC"
     MISSING_TEXT = "#DC2626"
-    NEUTRAL_BG = "#F2F3F5"
-    NEUTRAL_TEXT = "#6E6E73"
+    NEUTRAL_BG = "#F5F5F7"
+    NEUTRAL_TEXT = "#86868B"

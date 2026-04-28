@@ -433,3 +433,142 @@ curl -X POST "http://192.168.1.100:5000/v1/audio/speech" ^
 - `X-Cache: HIT|MISS`
 - `X-Cache-Key: <hash>`
 - `X-Asset-Id: <asset_id>`：仅当 `save_output=true` 生成 output asset 时出现
+
+---
+
+## 11. Pro 模式 API（新增）
+
+> Pro 模式 API 统一使用 `/api/v2/pro/` 前缀，提供批量异步合成和 GPU/模型管理能力。
+
+### 11.1 批量合成
+
+#### 提交批量合成任务
+
+`POST /api/v2/pro/batch`
+
+请求 JSON：
+
+```json
+{
+  "items": [
+    {
+      "row_id": "uuid-string",
+      "text": "需要合成的文本内容",
+      "voice_id": "角色名#情绪名",
+      "speed": 1.0
+    }
+  ]
+}
+```
+
+响应（HTTP 202）：
+
+```json
+{
+  "batch_id": "batch_xxxxxxxx",
+  "total": 10,
+  "status": "processing"
+}
+```
+
+#### 查询批量任务状态
+
+`GET /api/v2/pro/batch/{batch_id}`
+
+响应：
+
+```json
+{
+  "batch_id": "batch_xxxxxxxx",
+  "total": 10,
+  "completed": 3,
+  "failed": 0,
+  "status": "processing",
+  "items": [
+    {
+      "row_id": "uuid-1",
+      "status": "done",
+      "audio_url": "/api/v2/pro/batch/batch_xxx/audio/uuid-1",
+      "duration_ms": 4200,
+      "error": null
+    },
+    {
+      "row_id": "uuid-2",
+      "status": "processing",
+      "audio_url": null,
+      "duration_ms": null,
+      "error": null
+    }
+  ]
+}
+```
+
+状态枚举：`pending` → `processing` → `done` / `failed` / `cancelled`
+
+#### 获取单条合成音频
+
+`GET /api/v2/pro/batch/{batch_id}/audio/{row_id}`
+
+返回：`audio/wav` 字节流。仅当对应条目状态为 `done` 时可用。
+
+#### 取消批量任务
+
+`DELETE /api/v2/pro/batch/{batch_id}`
+
+响应：
+
+```json
+{
+  "status": "cancelled",
+  "batch_id": "batch_xxxxxxxx"
+}
+```
+
+### 11.2 系统控制
+
+#### 卸载模型（释放显存）
+
+`POST /api/v2/pro/system/unload`
+
+响应：
+
+```json
+{
+  "status": "unloaded",
+  "vram_freed_mb": 1234
+}
+```
+
+#### 重新加载模型
+
+`POST /api/v2/pro/system/reload`
+
+响应：
+
+```json
+{
+  "status": "loaded",
+  "model_name": "CosyVoice2-0.5B"
+}
+```
+
+### 11.3 健康检查增强
+
+`GET /api/v2/health` 响应现在额外包含：
+
+```json
+{
+  "model_loaded": true,
+  "gpu_name": "NVIDIA RTX 4090",
+  "vram_used_mb": 3400,
+  "vram_total_mb": 24000
+}
+```
+
+### 11.4 静态音频访问
+
+合成输出文件可通过以下路径直接 HTTP 访问：
+
+`GET /assets/output/<path:filename>`
+
+示例：`http://localhost:9880/assets/output/pro_batch/batch_xxx/uuid-1.wav`

@@ -10,11 +10,11 @@ echo.
 
 REM 读取 app_config.json 的 v2 voices 配置路径（确保 UI 内嵌服务与外部服务一致）
 set "CFG_PATH=config\super_agent.json"
-if exist "app_config.json" (
-    for /f "usebackq delims=" %%A in (`.pixi\envs\default\python.exe -c "import json; d=json.load(open('app_config.json','r',encoding='utf-8')); print((d.get('v2_voices_config_path') or '').strip())"`) do (
-        if not "%%A"=="" set "CFG_PATH=%%A"
-    )
+if not exist "app_config.json" goto :skip_config
+for /f "usebackq delims=" %%A in (`.pixi\envs\default\python.exe -c "import json; d=json.load(open('app_config.json','r',encoding='utf-8')); print((d.get('v2_voices_config_path') or '').strip())"`) do (
+    if not "%%A"=="" set "CFG_PATH=%%A"
 )
+:skip_config
 
 REM 检查配置文件是否存在
 if not exist "%CFG_PATH%" (

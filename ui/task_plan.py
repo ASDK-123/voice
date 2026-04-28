@@ -33,8 +33,15 @@ class TaskPlanInterface(QWidget):
         self.config_manager = config_manager
         self.task_segments: List[TaskSegment] = []
         self.all_voice_configs: Dict[str, VoiceConfig] = {}
-        self.project_name = "project"
+        
+        # 挂载 AppStore
+        from ui.stores.app_store import use_app_store
+        self.store = use_app_store()
+        
         self.init_ui()
+        
+        # 监听外部全局修改，同步回传UI
+        self.store.project_name_changed.connect(self._on_store_project_name_changed)
     
     @property
     def output_dir(self):
@@ -56,7 +63,7 @@ class TaskPlanInterface(QWidget):
         header_layout.addWidget(project_label)
         
         self.project_edit = LineEdit()
-        self.project_edit.setText(self.project_name)
+        self.project_edit.setText(self.store.project_name)
         self.project_edit.setFixedWidth(150)
         self.project_edit.textChanged.connect(self.on_project_changed)
         header_layout.addWidget(self.project_edit)
@@ -163,7 +170,13 @@ class TaskPlanInterface(QWidget):
                 run_btn.setEnabled(not running)
     
     def on_project_changed(self, text: str):
-        self.project_name = text
+        # 推送至 Store
+        self.store.set_project_name(text)
+
+    def _on_store_project_name_changed(self, text: str):
+        # 避免回循环更新
+        if self.project_edit.text() != text:
+            self.project_edit.setText(text)
 
     def _get_recent_voice_ids(self) -> List[str]:
         try:
@@ -504,7 +517,7 @@ class TaskPlanInterface(QWidget):
 
     def open_output_folder(self):
         """打开输出文件夹"""
-        path = os.path.abspath(os.path.join(self.output_dir, self.project_name))
+        path = os.path.abspath(os.path.join(self.output_dir, self.store.project_name))
         if not os.path.exists(path):
             try:
                 os.makedirs(path, exist_ok=True)
@@ -608,7 +621,7 @@ class TaskPlanInterface(QWidget):
     def save_plan(self):
         """保存任务计划"""
         # 默认保存路径为 output_dir/project_name
-        default_dir = os.path.join(self.output_dir, self.project_name)
+        default_dir = os.path.join(self.output_dir, self.store.project_name)
         if not os.path.exists(default_dir):
             try:
                 os.makedirs(default_dir, exist_ok=True)
@@ -621,7 +634,7 @@ class TaskPlanInterface(QWidget):
             return
             
         data = {
-            "project_name": self.project_name,
+            "project_name": self.store.project_name,
             # "output_dir": self.output_dir, # 不再保存 output_dir，使用全局设置
             "segments": []
         }
@@ -646,7 +659,7 @@ class TaskPlanInterface(QWidget):
     def load_plan(self):
         """加载任务计划"""
         # 默认加载路径为 output_dir/project_name
-        default_dir = os.path.join(self.output_dir, self.project_name)
+        default_dir = os.path.join(self.output_dir, self.store.project_name)
         if not os.path.exists(default_dir):
              default_dir = self.output_dir
              
@@ -658,8 +671,8 @@ class TaskPlanInterface(QWidget):
             with open(file_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             
-            self.project_name = data.get("project_name", "project")
-            self.project_edit.setText(self.project_name)
+            p_name = data.get("project_name", "project")
+            self.store.set_project_name(p_name)
             
             # self.output_dir = data.get("output_dir", "./output") # 不再加载 output_dir
             # self.output_edit.setText(self.output_dir)

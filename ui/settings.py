@@ -1,4 +1,12 @@
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QFileDialog, QLineEdit
+from PyQt5.QtWidgets import (
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QFileDialog,
+    QLineEdit,
+    QScrollArea,
+    QFrame,
+)
 from qfluentwidgets import (
     SwitchButton, SpinBox, SubtitleLabel, BodyLabel, 
     PushButton, LineEdit
@@ -20,7 +28,19 @@ class SettingsInterface(QWidget):
         self.load_settings()
 
     def init_ui(self):
-        layout = QVBoxLayout(self)
+        root_layout = QVBoxLayout(self)
+        root_layout.setSpacing(0)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+
+        scroll = QScrollArea(self)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        root_layout.addWidget(scroll)
+
+        content = QWidget(self)
+        scroll.setWidget(content)
+
+        layout = QVBoxLayout(content)
         layout.setSpacing(20)
         layout.setContentsMargins(30, 30, 30, 30)
 

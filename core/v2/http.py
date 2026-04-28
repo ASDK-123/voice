@@ -40,7 +40,17 @@ def json_error(app, logger, e: Exception):
     err = coerce_exception(e)
     rid = get_request_id()
     try:
-        log_event(logger, request_id=rid, event="v2_error", code=err.code, status=err.status, message=err.message)
+        log_event(
+            logger,
+            request_id=rid,
+            event="API_REQ_FAIL",
+            method=request.method,
+            path=request.path,
+            status=err.status,
+            error_code=err.code,
+            message=err.message,
+            message_zh=err.message_zh or "",
+        )
     except Exception:
         pass
     payload = err.to_dict()
@@ -73,6 +83,17 @@ def install_middleware(
     def _set_request_id():
         g._t0 = time.perf_counter()
         g.request_id = pick_request_id(request.headers.get("X-Request-Id"))
+        try:
+            log_event(
+                logger,
+                request_id=get_request_id(),
+                event="API_REQ_START",
+                method=request.method,
+                path=request.path,
+                content_length=int(request.content_length or 0),
+            )
+        except Exception:
+            pass
 
     @app.after_request
     def _attach_request_id(resp):
@@ -90,7 +111,7 @@ def install_middleware(
             log_event(
                 logger,
                 request_id=rid,
-                event="http_access",
+                event="API_REQ_END",
                 method=request.method,
                 path=request.path,
                 status=int(getattr(resp, "status_code", 0) or 0),
@@ -104,4 +125,3 @@ def install_middleware(
     @app.errorhandler(413)
     def _payload_too_large(_e):
         return json_error(app, logger, AppError(code="payload_too_large", message="payload too large", status=413))
-

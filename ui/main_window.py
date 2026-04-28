@@ -3,16 +3,18 @@ import datetime
 from typing import List, Optional
 
 import requests
-from PyQt5.QtCore import Qt, QUrl, QTimer, pyqtSignal, QThread
-from PyQt5.QtGui import QIcon, QDesktopServices
+from PyQt5.QtCore import Qt, QUrl, QTimer, pyqtSignal, QThread, QEvent
+from PyQt5.QtGui import QIcon, QDesktopServices, QGuiApplication
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 
 from qfluentwidgets import (
     FluentWindow, FluentIcon, NavigationItemPosition, InfoBar, InfoBarPosition, setTheme, Theme
 )
 
+from core.logging import emit_event as emit_log_event
+from core.logging import get_logger as get_runtime_logger
 from core.models import TaskSegment
-from core.worker import AudioGenerationWorker, V2AudioGenerationWorker, ModelLoaderThread, ModelUnloaderThread
+from core.worker import ModelLoaderThread, ModelUnloaderThread
 from core.utils import merge_audio_files
 from core.config_manager import ConfigManager
 
@@ -23,40 +25,7 @@ from .settings import SettingsInterface
 from .api_page import APIPageInterface
 
 
-class V2HealthProbeThread(QThread):
-    """后台探测 v2 API 健康状态，避免主线程阻塞。"""
 
-    done = pyqtSignal(object)
-
-    def __init__(self, host: str, port: int, api_key: str = "", timeout_s: float = 0.5):
-        super().__init__()
-        self.host = str(host or "127.0.0.1").strip() or "127.0.0.1"
-        self.port = int(port or 9880)
-        self.api_key = str(api_key or "").strip()
-        self.timeout_s = float(timeout_s)
-
-    def run(self):
-        base_url = f"http://{self.host}:{self.port}"
-        headers = {"X-API-Key": self.api_key} if self.api_key else {}
-        result = {
-            "ok": False,
-            "base_url": base_url,
-            "api_key": self.api_key,
-            "error": "",
-            "model_loaded": False,
-        }
-        try:
-            resp = requests.get(f"{base_url}/api/v2/health", headers=headers, timeout=self.timeout_s)
-            if int(resp.status_code) < 400:
-                payload = resp.json() or {}
-                loaded = bool(payload.get("model_loaded", False))
-                result["model_loaded"] = loaded
-                result["ok"] = loaded
-            else:
-                result["error"] = f"HTTP {resp.status_code}"
-        except Exception as e:
-            result["error"] = str(e)
-        self.done.emit(result)
 
 
 class CosyVoiceProApp(FluentWindow):
@@ -65,11 +34,17 @@ class CosyVoiceProApp(FluentWindow):
     def __init__(self):
         super().__init__()
         self.config_manager = ConfigManager()
+        self.app_logger = get_runtime_logger("ui.main")
         self.cosyvoice_model = None
         self.current_worker = None
         self.model_loader_thread = None
         self.model_unloader_thread = None
-        self.generation_probe_thread = None
+
+        from ui.services.thread_worker import WorkerManager
+        from ui.services.generation_service import GenerationService
+        
+        self.worker_manager = WorkerManager()
+        self.generation_service = GenerationService(self.config_manager, self.worker_manager, self)
         
         # Qt5 Audio Setup
         self.media_player = QMediaPlayer()
@@ -233,6 +208,12 @@ class CosyVoiceProApp(FluentWindow):
         self.task_interface.project_edit.textChanged.connect(
             lambda text: self.config_manager.set("project_name", text)
         )
+
+        # 连接 GenerationService 信号到主窗口回调
+        self.generation_service.progress.connect(self.on_progress)
+        self.generation_service.segment_finished.connect(self.on_segment_finished)
+        self.generation_service.finished.connect(self.on_generation_finished)
+        self.generation_service.error.connect(self.on_generation_error)
     
     def on_theme_changed_in_nav(self, text):
         """侧边栏主题改变"""
@@ -243,6 +224,38 @@ class CosyVoiceProApp(FluentWindow):
             setTheme(Theme.DARK)
         else:
             setTheme(Theme.AUTO)
+
+    def toggle_theme(self):
+        from qfluentwidgets import Theme, setTheme, InfoBar, InfoBarPosition
+        from .stores.app_store import use_app_store
+        from PyQt5.QtCore import Qt
+        
+        current = self.config_manager.get("theme", "Auto")
+        if current == "Light":
+            nxt = "Dark"
+        elif current == "Dark":
+            nxt = "Auto"
+        else:
+            nxt = "Light"
+            
+        self.config_manager.set("theme", nxt)
+        if nxt == "Light":
+            setTheme(Theme.LIGHT)
+        elif nxt == "Dark":
+            setTheme(Theme.DARK)
+        else:
+            setTheme(Theme.AUTO)
+            
+        InfoBar.info(
+            title="主题已切换",
+            content=f"当前选择的偏好：{nxt}",
+            orient=Qt.Horizontal,
+            isClosable=False,
+            position=InfoBarPosition.TOP,
+            duration=1500,
+            parent=self,
+        )
+        use_app_store().set_theme(nxt)
 
     def open_emotion_redirect(self):
         """Compatibility entry: emotion management merged into voice settings."""
@@ -450,6 +463,19 @@ class CosyVoiceProApp(FluentWindow):
                 parent=self
             )
             return
+        try:
+            first_voice = str(getattr(segments[0][1], "name", "") or "")
+            text_len = sum(len(str(seg_text or "")) for seg_text, _ in segments)
+            emit_log_event(
+                logger=self.app_logger,
+                level="INFO",
+                module="ui.main",
+                event="UI_CLICK_SYNTH",
+                msg_zh="用户点击一键运行",
+                fields={"voice_id": first_voice, "text_len": int(text_len)},
+            )
+        except Exception:
+            pass
         
         # 创建任务段落
         task_segments = [
@@ -516,111 +542,23 @@ class CosyVoiceProApp(FluentWindow):
         self.start_generation(segments)
     
     def start_generation(self, segments: List[TaskSegment]):
-        """开始音频生成"""
-        if self.current_worker and self.current_worker.isRunning():
-            InfoBar.warning(
-                title="正在运行",
-                content="已有任务正在运行中",
-                orient=Qt.Horizontal,
-                isClosable=True,
-                position=InfoBarPosition.TOP,
-                duration=2000,
-                parent=self
-            )
-            return
-        if self.generation_probe_thread and self.generation_probe_thread.isRunning():
-            InfoBar.warning(
-                title="正在检查",
-                content="正在检查 v2 API 状态，请稍候",
-                orient=Qt.Horizontal,
-                isClosable=True,
-                position=InfoBarPosition.TOP,
-                duration=2000,
-                parent=self,
-            )
-            return
-
-        # Create worker thread: prefer v2 API for cache/jobs/emotion voices when available.
-        use_v2 = bool(self.config_manager.get("ui_use_v2_generation", True))
-        if not use_v2:
-            worker = AudioGenerationWorker(
-                segments,
-                self.task_interface.output_dir,
-                self.task_interface.project_name,
-                self.cosyvoice_model,
-            )
-            self._start_generation_worker(worker)
-            return
-
-        host = str(self.config_manager.get("api_host", "127.0.0.1") or "127.0.0.1").strip()
-        port = int(self.config_manager.get("api_port", 9880) or 9880)
-        api_key = str(self.config_manager.get("api_key", "") or "").strip()
-        probe = V2HealthProbeThread(host, port, api_key, timeout_s=0.5)
-        self.generation_probe_thread = probe
-
-        def _on_probe_done(res: object):
-            self.generation_probe_thread = None
-            try:
-                probe.deleteLater()
-            except Exception:
-                pass
-
-            result = res if isinstance(res, dict) else {}
-            base_url = str(result.get("base_url") or f"http://{host}:{port}")
-            api_key_local = str(result.get("api_key") or api_key)
-            ok = bool(result.get("ok", False))
-            err = str(result.get("error") or "").strip()
-
-            if ok:
-                worker2 = V2AudioGenerationWorker(
-                    segments,
-                    self.task_interface.output_dir,
-                    self.task_interface.project_name,
-                    base_url=base_url,
-                    api_key=api_key_local,
-                    timeout_s=60.0,
-                )
-                self._start_generation_worker(worker2)
-                return
-
-            if err:
-                self.task_interface.add_log("[INFO] v2 API 不可用，回退到本地推理。")
-            else:
-                self.task_interface.add_log("[INFO] v2 API 不可用或模型未加载，回退到本地推理。")
-            worker2 = AudioGenerationWorker(
-                segments,
-                self.task_interface.output_dir,
-                self.task_interface.project_name,
-                self.cosyvoice_model,
-            )
-            self._start_generation_worker(worker2)
-
-        probe.done.connect(_on_probe_done)
-        probe.start()
+        """开始音频生成，通过 GenerationService 统一托管，切断 UI 直通后端的硬代码"""
+        
+        self._set_generation_ui_running(True)
+        # 为 Service 更新底层的直连可用模型
+        self.generation_service.set_cosyvoice_model(self.cosyvoice_model)
+        self.generation_service.start_generation(
+            segments, 
+            self.task_interface.output_dir, 
+            self.task_interface.project_name, 
+            parent_widget=self
+        )
 
     def get_active_cosyvoice_model(self):
-        """返回当前可用的 CosyVoice 模型实例（兼容不同 worker 类型）。"""
+        """返回当前可用的 CosyVoice 模型实例。"""
         if self.cosyvoice_model is not None:
             return self.cosyvoice_model
-        worker = self.current_worker
-        if worker is None:
-            return None
-        return getattr(worker, "cosyvoice", None)
-
-    def _start_generation_worker(self, worker: QThread):
-        self.current_worker = worker
-
-        # 连接信号
-        self.current_worker.progress.connect(self.task_interface.add_log)
-        self.current_worker.segment_finished.connect(self.task_interface.update_segment_audio)
-        self.current_worker.finished.connect(self.on_generation_finished)
-        self.current_worker.error.connect(self.on_generation_error)
-
-        # 进入运行态，避免重复触发
-        self._set_generation_ui_running(True)
-
-        # 启动线程
-        self.current_worker.start()
+        return self.generation_service._cosyvoice_model_ref
 
     def _set_generation_ui_running(self, running: bool):
         """同步主流程生成相关控件的运行态。"""
@@ -635,13 +573,32 @@ class CosyVoiceProApp(FluentWindow):
             self.text_interface.quick_run_button.setText("运行中..." if running else "一键运行")
             self.text_interface.to_task_button.setEnabled(not running)
     
+    def on_progress(self, message: str):
+        """接收生成进度日志"""
+        try:
+            self.task_interface.add_log(message)
+        except Exception:
+            pass
+
+    def on_segment_finished(self, segment_index: int, files: List[str]):
+        """单个段落生成完成，更新表格音频选项"""
+        try:
+            # 找到对应段落并刷新表格行
+            for i, seg in enumerate(self.task_interface.task_segments):
+                if seg.index == segment_index:
+                    self.task_interface.update_table()
+                    self.task_interface.add_log(
+                        f"[OK] 第 {segment_index} 段完成: {', '.join(os.path.basename(f) for f in files)}"
+                    )
+                    break
+        except Exception as e:
+            print(f"on_segment_finished error: {e}")
+
     def on_generation_finished(self, files: List[str]):
         """生成完成"""
         self.task_interface.add_log(f"[OK] 生成完成，共 {len(files)} 个文件")
         
-        # 更新模型引用
-        if self.current_worker and hasattr(self.current_worker, "cosyvoice"):
-            self.cosyvoice_model = getattr(self.current_worker, "cosyvoice", None)
+        # 不再尝试从 worker 中反向抓取模型，Service 已在内部做好保持
         
         # 恢复按钮
         self._set_generation_ui_running(False)
@@ -746,6 +703,17 @@ class CosyVoiceProApp(FluentWindow):
     def play_audio(self, filepath: str):
         """播放音频"""
         if not os.path.exists(filepath):
+            try:
+                emit_log_event(
+                    logger=self.app_logger,
+                    level="ERROR",
+                    module="ui.main",
+                    event="UI_PLAY_FAIL",
+                    msg_zh="播放失败，音频文件不存在",
+                    fields={"file": filepath, "reason": "file_not_found"},
+                )
+            except Exception:
+                pass
             InfoBar.warning(
                 title="文件不存在",
                 content="音频文件不存在",
@@ -760,6 +728,17 @@ class CosyVoiceProApp(FluentWindow):
         url = QUrl.fromLocalFile(filepath)
         self.media_player.setMedia(QMediaContent(url))
         self.media_player.play()
+        try:
+            emit_log_event(
+                logger=self.app_logger,
+                level="INFO",
+                module="ui.main",
+                event="UI_PLAY_START",
+                msg_zh="开始播放音频",
+                fields={"file": filepath},
+            )
+        except Exception:
+            pass
         
         self.task_interface.add_log(f"[INFO] 播放: {os.path.basename(filepath)}")
     
@@ -857,8 +836,17 @@ class CosyVoiceProApp(FluentWindow):
         self.model_loader_thread = None
         self._stop_qthread(self.model_unloader_thread)
         self.model_unloader_thread = None
-        self._stop_qthread(self.generation_probe_thread)
-        self.generation_probe_thread = None
+        # Stop background thread management
+        if hasattr(self, "worker_manager") and self.worker_manager:
+            try:
+                self.worker_manager.stop_all()
+            except Exception as e:
+                print(f"Error stopping worker manager: {e}")
+        try:
+            if getattr(self, "generation_service", None):
+                self.generation_service.shutdown()
+        except Exception:
+            pass
 
         # Stop voice-settings background workers if active.
         try:

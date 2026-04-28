@@ -1,11 +1,13 @@
 @echo off
 chcp 65001 > nul
 setlocal enabledelayedexpansion
-title CosyVoice Desktop Pro
+title CosyVoice Desktop Legacy
 
 echo ====================================
-echo    CosyVoice Desktop v1.4
+echo    CosyVoice Desktop Legacy
 echo ====================================
+echo.
+echo [提示] 桌面 GUI 当前作为兼容/回退入口保留，推荐优先使用 StartWebUI.bat
 echo.
 
 REM 获取当前脚本所在目录

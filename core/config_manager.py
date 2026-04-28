@@ -44,6 +44,18 @@ class ConfigManager:
             "ui_favorite_characters": [],
             "ui_last_emotion_by_character": {},
             "ui_voice_library_splitter_ratio": 0.32,
+
+            # Logging v2 defaults (zh-first, smooth compatibility)
+            "log_language": "zh-CN",
+            "log_console_format": "human",
+            "log_file_format": "jsonl",
+            "log_level": "INFO",
+            "log_dir": "data/logs",
+            "log_third_party_mode": "quiet",
+            "log_compat_mode": "smooth",
+            "log_schema_version": "1",
+            "log_queue_max": 10000,
+            "log_drop_policy": "drop_debug_first",
         }
         self.load_config()
 

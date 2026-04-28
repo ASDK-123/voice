@@ -41,6 +41,7 @@ from .v2_client import V2Client, V2Config, V2HttpError
 from .asset_cleanup_dialog import UnusedAssetsCleanupDialog
 from .voice_setup_wizard import VoiceSetupWizardDialog
 from .theme.tokens import Palette
+from core.v2.asset_texts import get_asset_transcript_text
 
 CONTROL_H = 44
 TOOL_BTN_SZ = 40
@@ -293,11 +294,11 @@ class EmotionVoicesInterface(QWidget):
         self.prompt_text.textChanged.connect(self._on_prompt_text_changed)
         left_l.addWidget(self.prompt_text)
 
-        self.follow_asset_prompt_switch = SwitchButton("切换参考音频时自动加载其参考文本（来自备注/已保存文本）")
+        self.follow_asset_prompt_switch = SwitchButton("切换参考音频时自动加载其参考文本（来自已保存参考文本）")
         self.follow_asset_prompt_switch.setChecked(True)
         left_l.addWidget(self.follow_asset_prompt_switch)
 
-        self.sync_prompt_to_asset_switch = SwitchButton("保存 voice 时同步参考文本到选中音频备注")
+        self.sync_prompt_to_asset_switch = SwitchButton("保存 voice 时同步参考文本到选中音频")
         self.sync_prompt_to_asset_switch.setChecked(True)
         left_l.addWidget(self.sync_prompt_to_asset_switch)
 
@@ -420,7 +421,7 @@ class EmotionVoicesInterface(QWidget):
 
         filter_row = QHBoxLayout()
         self.asset_search = SearchLineEdit(self)
-        self.asset_search.setPlaceholderText("搜索 备注/路径/资源ID")
+        self.asset_search.setPlaceholderText("搜索 参考文本/备注/路径/资源ID")
         self.asset_search.setFixedHeight(CONTROL_H)
         self.asset_search.textChanged.connect(self._apply_asset_filters)
         filter_row.addWidget(self.asset_search, 1)
@@ -440,7 +441,7 @@ class EmotionVoicesInterface(QWidget):
 
         self.asset_table = TableWidget()
         self.asset_table.setColumnCount(6)
-        self.asset_table.setHorizontalHeaderLabels(["资源ID", "语言", "备注", "时间", "路径", "绑定"])
+        self.asset_table.setHorizontalHeaderLabels(["资源ID", "语言", "参考文本", "时间", "路径", "绑定"])
         self.asset_table.verticalHeader().setVisible(False)
         self.asset_table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.asset_table.customContextMenuRequested.connect(self._show_assets_context_menu)
@@ -641,6 +642,43 @@ class EmotionVoicesInterface(QWidget):
 
         self._run(_do, _ok, lambda _: None)
 
+    def _asset_ref_count_hint(self, cli: V2Client, aid: str) -> int:
+        aid = str(aid or "").strip()
+        if not aid:
+            return 0
+
+        def _scan(items: List[dict]) -> int:
+            for it in items or []:
+                if not isinstance(it, dict):
+                    continue
+                if str(it.get("asset_id") or "").strip() != aid:
+                    continue
+                try:
+                    return int(it.get("ref_count") or 0)
+                except Exception:
+                    return 0
+            return -1
+
+        from_view = _scan(self._assets_view_items)
+        if from_view >= 0:
+            return from_view
+        from_all = _scan(self._assets_items)
+        if from_all >= 0:
+            return from_all
+
+        # Fallback: query reverse refs endpoint for the latest ref_count.
+        try:
+            refs = cli.list_asset_refs(character=self._selected_character, emotion="", language="", kind="ref")
+            for it in refs or []:
+                if not isinstance(it, dict):
+                    continue
+                if str(it.get("asset_id") or "").strip() != aid:
+                    continue
+                return int(it.get("ref_count") or 0)
+        except Exception:
+            return 0
+        return 0
+
     # -------- assets --------
     def refresh_assets(self):
         ch = self._selected_character
@@ -679,6 +717,8 @@ class EmotionVoicesInterface(QWidget):
                 hay = " ".join(
                     [
                         str(it.get("asset_id") or ""),
+                        str(get_asset_transcript_text(it) or ""),
+                        str(it.get("prompt_text") or ""),
                         str(it.get("note") or ""),
                         str(it.get("path") or ""),
                         str(it.get("created_at") or ""),
@@ -703,11 +743,11 @@ class EmotionVoicesInterface(QWidget):
                 it = {}
             aid = str(it.get("asset_id") or "")
             language = str(it.get("language") or "")
-            note = str(it.get("note") or "")
+            transcript = str(get_asset_transcript_text(it) or "")
             created_at = str(it.get("created_at") or "")
             path = str(it.get("path") or "")
             linked = "已绑定" if it.get("linked") else "未绑定"
-            values = [aid, language, note, created_at, path, linked]
+            values = [aid, language, transcript, created_at, path, linked]
             for col, v in enumerate(values):
                 # QTableWidgetItem plays nicer than cell widgets for selection
                 from PyQt5.QtWidgets import QTableWidgetItem
@@ -756,9 +796,7 @@ class EmotionVoicesInterface(QWidget):
             if aid and aid in self._prompt_drafts_by_asset_id:
                 suggested = (self._prompt_drafts_by_asset_id.get(aid) or "").strip()
             if not suggested:
-                suggested = str(it.get("prompt_text") or "").strip()
-            if not suggested:
-                suggested = note
+                suggested = str(get_asset_transcript_text(it) or "").strip()
 
             self._suppress_prompt_dirty = True
             try:
@@ -918,7 +956,7 @@ class EmotionVoicesInterface(QWidget):
         emo = (self.emotion_edit.text() or "").strip() or "default"
         lang = str(self.lang_combo.currentText() or "zh").strip() or "zh"
         note = (self.note_edit.text() or "").strip()
-        voice_prompt_hint = (self.prompt_text.toPlainText() or "").strip() or note
+        voice_prompt_hint = (self.prompt_text.toPlainText() or "").strip()
         mode_val = str(self.mode_combo.currentText() or "参考音色")
         instruct_val = (self.instruct_text.toPlainText() or "").strip()
         policy_val = self._policy_label_to_key.get(str(self.selection_combo.currentText() or ""), "random_per_text")
@@ -926,6 +964,13 @@ class EmotionVoicesInterface(QWidget):
         def _do():
             cli = self._v2_client()
             meta = cli.upload_asset(file_path=fp, character=ch, emotion=emo, language=lang, note=note)
+            if voice_prompt_hint:
+                try:
+                    aid0 = str((meta or {}).get("asset_id") or "").strip()
+                    if aid0:
+                        cli.update_asset(aid0, {"transcript_text": voice_prompt_hint, "prompt_text": voice_prompt_hint})
+                except Exception:
+                    pass
             aid = str((meta or {}).get("asset_id") or "").strip()
             vid = f"{ch}#{emo}" if ch else ""
 
@@ -992,7 +1037,7 @@ class EmotionVoicesInterface(QWidget):
             self._set_upload_hint()
             self.refresh_all()
             if not voice_prompt_hint:
-                self._toast_warn("提示", "已上传参考音频，但未创建该情绪 voice：请先填写左侧“参考文本”或右侧“备注”，再点击“创建该情绪 voice”。")
+                self._toast_warn("提示", "已上传参考音频，但未创建该情绪 voice：请先填写左侧“参考文本”，再点击“创建该情绪 voice”。")
 
         self._run(_do, _ok, lambda m: self._toast_err("上传失败", m))
 
@@ -1008,9 +1053,6 @@ class EmotionVoicesInterface(QWidget):
         policy_val = self._policy_label_to_key.get(str(self.selection_combo.currentText() or ""), "random_per_text")
 
         prompt = (self.prompt_text.toPlainText() or "").strip()
-        if not prompt:
-            # Use asset note as a practical default: user usually pastes reference text there.
-            prompt = (self.note_edit.text() or "").strip()
 
         if not prompt:
             text, ok = QInputDialog.getMultiLineText(
@@ -1066,15 +1108,10 @@ class EmotionVoicesInterface(QWidget):
             self._toast_warn("提示", "请先在右侧选择一个参考音频")
             return
 
-        note = (self.note_edit.text() or "").strip()
-        if not note:
-            self._toast_warn("提示", "备注不能为空")
-            return
-
         def _do():
             cli = self._v2_client()
-            # Keep note/prompt_text consistent for now: UI treats it as the per-asset reference text.
-            return cli.update_asset(aid, {"note": note, "prompt_text": note})
+            note = (self.note_edit.text() or "").strip()
+            return cli.update_asset(aid, {"note": note})
 
         def _ok(_):
             self._toast_ok("已保存备注", aid)
@@ -1225,15 +1262,28 @@ class EmotionVoicesInterface(QWidget):
                 "emotion": self._selected_emotion,
             }
             voice = cli.update_voice(vid, patch)
+            asset_sync = {"status": "disabled", "asset_id": selected_aid}
 
-            # Optional: sync current prompt_text back to selected asset note/prompt_text.
+            # Optional: sync current prompt_text back to selected asset transcript.
             if selected_aid and hasattr(self, "sync_prompt_to_asset_switch") and self.sync_prompt_to_asset_switch.isChecked():
                 pt = (patch.get("prompt_text") or "").strip()
                 if pt:
-                    cli.update_asset(selected_aid, {"note": pt, "prompt_text": pt})
-            return voice
+                    ref_count = self._asset_ref_count_hint(cli, selected_aid)
+                    if ref_count > 1:
+                        asset_sync = {"status": "skipped_shared", "asset_id": selected_aid, "ref_count": ref_count}
+                    else:
+                        cli.update_asset(selected_aid, {"transcript_text": pt, "prompt_text": pt})
+                        asset_sync = {"status": "applied", "asset_id": selected_aid, "ref_count": ref_count}
+                else:
+                    asset_sync = {"status": "skipped_empty_prompt", "asset_id": selected_aid}
+            return {"voice": voice, "asset_sync": asset_sync}
 
-        def _ok(_):
+        def _ok(res: object):
+            sync_meta = (res or {}).get("asset_sync") if isinstance(res, dict) else {}
+            if isinstance(sync_meta, dict) and str(sync_meta.get("status") or "") == "skipped_shared":
+                aid = str(sync_meta.get("asset_id") or "").strip()
+                ref_count = int(sync_meta.get("ref_count") or 0)
+                self._toast_warn("已保护共享资产", f"asset={aid} 被 {ref_count} 个 voice 复用，已跳过资产文本回写")
             self._toast_ok("已保存", vid)
             try:
                 self.refresh_assets()

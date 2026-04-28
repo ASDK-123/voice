@@ -23,6 +23,7 @@ from core.models import VoiceConfig
 from core.config_manager import ConfigManager
 from core.v2.legacy_import import import_legacy_voice_config_to_v2
 from core.v2.assets_sqlite import AssetsSqliteStore
+from core.v2.asset_texts import get_asset_transcript_text
 
 from .asset_cleanup_dialog import UnusedAssetsCleanupDialog
 from .voice_setup_wizard import VoiceSetupWizardDialog
@@ -64,21 +65,7 @@ class LegacyImportWorker(QThread):
             self.error.emit(str(e))
 
 
-class V2CallWorker(QThread):
-    ok = pyqtSignal(object)
-    err = pyqtSignal(object)
-
-    def __init__(self, fn, *args, **kwargs):
-        super().__init__()
-        self._fn = fn
-        self._args = args
-        self._kwargs = kwargs
-
-    def run(self):
-        try:
-            self.ok.emit(self._fn(*self._args, **self._kwargs))
-        except Exception as e:
-            self.err.emit(e)
+from .services.thread_worker import WorkerManager
 
 class VoiceSettingsInterface(QWidget):
     """语音设置界面"""
@@ -96,7 +83,7 @@ class VoiceSettingsInterface(QWidget):
         self.config_dir = Path("./config")
         self.config_dir.mkdir(exist_ok=True)
         self.import_worker = None  # 导入线程
-        self._api_workers: List[QThread] = []
+        self._worker_manager = WorkerManager(self)
         self._api_status_busy = False
         self._v2_assets_db_path = os.path.abspath("./data/api_v2_assets.sqlite3")
         self._v2_assets_dir = os.path.abspath("./data/assets/audio")
@@ -135,6 +122,7 @@ class VoiceSettingsInterface(QWidget):
         self._was_refs_open_before_compact = False
         self._is_temporary_inspector_open = False
         self._pending_delete: Optional[dict] = None
+        self._asset_meta_cache: Dict[str, dict] = {}
         try:
             self._compile_all_refs = bool(self.config_manager.get("ui_voice_settings_compile_all_refs", False))
         except Exception:
@@ -151,16 +139,16 @@ class VoiceSettingsInterface(QWidget):
     
     def init_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(Spacing.LG, Spacing.LG, Spacing.LG, Spacing.LG)
-        layout.setSpacing(Spacing.SM)
+        layout.setContentsMargins(Spacing.XL, Spacing.XL, Spacing.XL, Spacing.XL)
+        layout.setSpacing(Spacing.MD)
 
         layout.addWidget(self.build_top_toolbar())
         layout.addWidget(self.build_status_strip())
 
         # 配置表格
         self.table = TableWidget()
-        self.table.setColumnCount(6)
-        self.table.setHorizontalHeaderLabels(["角色 / 情绪", "模式", "参考文本", "主参考", "指令文本", "颜色"])
+        self.table.setColumnCount(5)
+        self.table.setHorizontalHeaderLabels(["角色 / 情绪", "模式", "参考文本", "主参考", "颜色"])
         self.table.setAlternatingRowColors(True)
         self.table.verticalHeader().setDefaultSectionSize(Metrics.TABLE_ROW_H)
         header = self.table.horizontalHeader()
@@ -169,8 +157,7 @@ class VoiceSettingsInterface(QWidget):
         header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(2, QHeaderView.Stretch)
         header.setSectionResizeMode(3, QHeaderView.Interactive)
-        header.setSectionResizeMode(4, QHeaderView.Interactive)
-        header.setSectionResizeMode(5, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)
         header.setMinimumSectionSize(56)
 
         self.table.verticalHeader().setVisible(False)
@@ -216,9 +203,17 @@ class VoiceSettingsInterface(QWidget):
 
         layout.addWidget(self.main_splitter, 1)
 
-        # 按钮
+        # --- 底部操作栏（带分隔线） ---
+        from PyQt5.QtWidgets import QFrame
+        separator = QFrame()
+        separator.setFrameShape(QFrame.HLine)
+        separator.setFrameShadow(QFrame.Plain)
+        separator.setStyleSheet(f"color: {Palette.border()};")
+        separator.setFixedHeight(1)
+        layout.addWidget(separator)
+
         button_layout = QHBoxLayout()
-        button_layout.setSpacing(Spacing.SM)
+        button_layout.setSpacing(Spacing.MD)
 
         self.add_button = PushButton("添加配置")
         self.add_button.clicked.connect(self.add_config)
@@ -229,17 +224,18 @@ class VoiceSettingsInterface(QWidget):
         self.undo_delete_btn.clicked.connect(self.undo_pending_delete)
         button_layout.addWidget(self.undo_delete_btn)
         
-        # self.remove_button = PushButton("➖ 删除配置")
-        # self.remove_button.clicked.connect(self.remove_config)
-        # button_layout.addWidget(self.remove_button)
-        
         button_layout.addStretch()
-        
+
         self.load_button = PushButton("加载")
         self.load_button.clicked.connect(self.load_config)
         button_layout.addWidget(self.load_button)
 
-        self.save_button = PushButton("保存")
+        self.compile_button = PushButton("编译")
+        self.compile_button.setToolTip("通过 v2 API 编译当前选中 voice")
+        self.compile_button.clicked.connect(self.compile_current_voice_v2)
+        button_layout.addWidget(self.compile_button)
+
+        self.save_button = PrimaryPushButton("保存")
         self.save_button.clicked.connect(self.save_config)
         button_layout.addWidget(self.save_button)
 
@@ -247,10 +243,6 @@ class VoiceSettingsInterface(QWidget):
         self.apply_button.clicked.connect(self.apply_config)
         button_layout.addWidget(self.apply_button)
 
-        self.compile_button = PushButton("编译当前 voice")
-        self.compile_button.setToolTip("通过 v2 API 编译当前选中 voice")
-        self.compile_button.clicked.connect(self.compile_current_voice_v2)
-        button_layout.addWidget(self.compile_button)
         self._set_uniform_control_height(
             self.manage_refs_btn,
             self.open_inspector_btn,
@@ -280,6 +272,11 @@ class VoiceSettingsInterface(QWidget):
         self._refresh_api_status()
         if self._refs_open_pref and not self.is_compact_mode:
             self._set_inspector_visible(True, reason="init_restore")
+            
+        # 订阅全局主题模式，以便热更新局部 QSS
+        from .stores.app_store import use_app_store
+        use_app_store().theme_changed.connect(lambda _: self._apply_page_styles())
+        self._apply_page_styles()
 
     def build_top_toolbar(self) -> QWidget:
         bar, layout = self._build_strip_container(
@@ -307,6 +304,10 @@ class VoiceSettingsInterface(QWidget):
 
         self.main_ref_status_label = self._make_secondary_label("主参考：-")
         layout.addWidget(self.main_ref_status_label)
+        self.prompt_conflict_label = self._make_secondary_label("")
+        self.prompt_conflict_label.setStyleSheet(f"color: {Palette.WARNING};")
+        self.prompt_conflict_label.setVisible(False)
+        layout.addWidget(self.prompt_conflict_label)
         layout.addSpacing(Spacing.SM)
 
         self.manage_refs_btn = PushButton("管理参考音频")
@@ -373,27 +374,13 @@ class VoiceSettingsInterface(QWidget):
         return V2Client(V2Config(host=host, port=port, api_key=api_key, timeout_s=10.0))
 
     def _run_api_task(self, fn, on_ok, on_err):
-        w = V2CallWorker(fn)
-        self._api_workers.append(w)
-
-        def _cleanup():
-            try:
-                self._api_workers.remove(w)
-            except Exception:
-                pass
-            w.deleteLater()
-
         def _ok(res: object):
             on_ok(res)
 
         def _err(e: object):
             on_err(e)
 
-        w.ok.connect(_ok)
-        w.err.connect(_err)
-        # Cleanup only after thread fully exits; avoids QThread destroyed-while-running race.
-        w.finished.connect(_cleanup)
-        w.start()
+        self._worker_manager.run_task(fn, on_ok=_ok, on_err=_err)
 
     def _set_api_status(self, *, online: bool, detail: str = ""):
         if online:
@@ -484,50 +471,57 @@ class VoiceSettingsInterface(QWidget):
 
         # Keep key columns readable on 1280 while allowing narrower compact mode.
         if compact_mode:
-            name_w = self._clamp(int(avail * 0.26), 170, 230)
-            mode_w = self._clamp(int(avail * 0.11), 92, 120)
-            main_ref_w = self._clamp(int(avail * 0.24), 150, 210)
-            instruct_w = self._clamp(int(avail * 0.20), 150, 200)
+            name_w = self._clamp(int(avail * 0.36), 170, 230)
+            mode_w = self._clamp(int(avail * 0.16), 92, 120)
+            main_ref_w = self._clamp(int(avail * 0.40), 150, 210)
             color_w = 56
         else:
-            name_w = self._clamp(int(avail * 0.25), 210, 320)
-            mode_w = self._clamp(int(avail * 0.11), 100, 140)
-            main_ref_w = self._clamp(int(avail * 0.22), 190, 300)
-            instruct_w = self._clamp(int(avail * 0.20), 170, 280)
+            name_w = self._clamp(int(avail * 0.32), 210, 320)
+            mode_w = self._clamp(int(avail * 0.13), 100, 140)
+            main_ref_w = self._clamp(int(avail * 0.45), 190, 300)
             color_w = 74
 
         self.table.setColumnWidth(0, name_w)
         self.table.setColumnWidth(1, mode_w)
         self.table.setColumnWidth(3, main_ref_w)
-        self.table.setColumnWidth(4, instruct_w)
-        self.table.setColumnWidth(5, color_w)
+        self.table.setColumnWidth(4, color_w)
 
     def _apply_page_styles(self):
-        card_bg = Palette.card_theme()
-        text_primary = Palette.text_primary_theme()
+        card_bg = Palette.card()
+        text_primary = Palette.text_primary()
         table_alt = Palette.table_alt_bg()
         table_selected = Palette.table_selected_bg()
+        border_col = Palette.border()
+        
         self.setStyleSheet(
             f"""
             QWidget {{
                 font-family: 'Segoe UI', 'PingFang SC', sans-serif;
             }}
             QWidget#voiceSettingsTopToolbar {{
-                border: 1px solid {Palette.BORDER};
+                border: 1px solid {border_col};
                 border-radius: {Radius.PANEL}px;
                 background: {card_bg};
             }}
             QWidget#voiceSettingsStatusStrip {{
-                border: 1px solid {Palette.BORDER};
+                border: 1px solid {border_col};
                 border-radius: {Radius.CONTROL}px;
                 background: {card_bg};
             }}
             QTableView {{
-                border: 1px solid {Palette.BORDER};
+                border: 1px solid {border_col};
                 border-radius: {Radius.PANEL}px;
                 background: {card_bg};
                 alternate-background-color: {table_alt};
-                gridline-color: {Palette.BORDER};
+                gridline-color: transparent;
+            }}
+            QHeaderView::section {{
+                background: {card_bg};
+                border: none;
+                border-bottom: 1px solid {border_col};
+                padding: 6px 8px;
+                font-weight: 500;
+                color: {text_primary};
             }}
             QTableView::item:selected {{
                 background: {table_selected};
@@ -540,7 +534,7 @@ class VoiceSettingsInterface(QWidget):
                 background: transparent;
             }}
             QLineEdit:focus {{
-                border: 1px solid {Palette.BORDER};
+                border: 1px solid {border_col};
                 background: {card_bg};
             }}
             QPlainTextEdit {{
@@ -550,7 +544,7 @@ class VoiceSettingsInterface(QWidget):
                 background: transparent;
             }}
             QPlainTextEdit:focus {{
-                border: 1px solid {Palette.BORDER};
+                border: 1px solid {border_col};
                 background: {card_bg};
             }}
             """
@@ -596,15 +590,14 @@ class VoiceSettingsInterface(QWidget):
 
     def _compact_hidden_column_indexes(self) -> Set[int]:
         if not isinstance(self._compact_hidden_columns, list):
-            self._compact_hidden_columns = ["指令文本"]
+            self._compact_hidden_columns = []
         mapping = {
             "角色/情绪": 0,
             "角色 / 情绪": 0,
             "模式": 1,
             "参考文本": 2,
             "主参考": 3,
-            "指令文本": 4,
-            "颜色": 5,
+            "颜色": 4,
         }
         out: Set[int] = set()
         for name in self._compact_hidden_columns:
@@ -678,11 +671,15 @@ class VoiceSettingsInterface(QWidget):
             self.setup_widget_context_menu(editor, source_idx)
             return editor
 
-        wrap = BodyLabel(txt if txt else "<未填写参考文本>")
-        wrap.setWordWrap(True)
+        # 浏览模式：单行省略 + Tooltip 显示完整文本，消除文字墙
+        display = txt if txt else "<未填写参考文本>"
+        if len(display) > 60:
+            display = display[:57] + "..."
+        wrap = BodyLabel(display)
+        wrap.setWordWrap(False)
         wrap.setToolTip(txt)
         wrap.setStyleSheet(f"color: {Palette.TEXT_PRIMARY};")
-        wrap.setFixedHeight(18 * lines + 4)
+        wrap.setFixedHeight(Metrics.TABLE_ROW_H - 4)
         self.setup_widget_context_menu(wrap, source_idx)
         return wrap
 
@@ -1327,6 +1324,66 @@ class VoiceSettingsInterface(QWidget):
                 return aid
         return ""
 
+    def _get_asset_meta_cached(self, aid: str) -> Optional[dict]:
+        aid = self._safe_str(aid)
+        if not aid:
+            return None
+        if aid in self._asset_meta_cache:
+            cached = self._asset_meta_cache.get(aid) or {}
+            return dict(cached) if isinstance(cached, dict) else None
+        meta = None
+        store = self._assets_store_or_none()
+        if store is not None:
+            try:
+                meta = store.get(aid)
+            except Exception:
+                meta = None
+        if not isinstance(meta, dict):
+            try:
+                meta = self._v2_client().get_asset_meta(aid)
+            except Exception:
+                meta = None
+        if isinstance(meta, dict):
+            self._asset_meta_cache[aid] = dict(meta)
+            return dict(meta)
+        self._asset_meta_cache[aid] = {}
+        return None
+
+    def _resolve_transcript_text_from_row(self, row: dict) -> Tuple[str, str]:
+        if not isinstance(row, dict):
+            return "", ""
+        ref_ids = row.get("ref_asset_ids") or []
+        if not isinstance(ref_ids, list):
+            ref_ids = []
+        for x in ref_ids:
+            aid = self._safe_str(x)
+            if not aid:
+                continue
+            meta = self._get_asset_meta_cached(aid)
+            text = get_asset_transcript_text(meta).strip() if isinstance(meta, dict) else ""
+            if text:
+                return text, aid
+        return "", self._first_ref_asset_id(row)
+
+    def _resolve_prompt_text_conflict(self, row: dict) -> Tuple[bool, str]:
+        if not isinstance(row, dict):
+            return False, ""
+        voice_prompt = self._safe_str(row.get("prompt_text")).strip()
+        if not voice_prompt:
+            return False, ""
+        aid = self._first_ref_asset_id(row)
+        if not aid:
+            aid = self._safe_str(row.get("prompt_audio_asset_id"))
+        if not aid:
+            return False, ""
+        meta = self._get_asset_meta_cached(aid)
+        transcript = get_asset_transcript_text(meta).strip() if isinstance(meta, dict) else ""
+        if not transcript:
+            return False, ""
+        if transcript != voice_prompt:
+            return True, f"参考文本冲突：voice 与主参考 transcript 不一致（{aid}）"
+        return False, ""
+
     def _resolve_prompt_audio_from_row(self, row: dict) -> Tuple[str, str]:
         """
         Resolve prompt audio path for display/compat:
@@ -1454,6 +1511,8 @@ class VoiceSettingsInterface(QWidget):
                 self.refs_summary_label.setText("参考池：-")
                 self.main_ref_status_label.setText("主参考：-")
                 self.main_ref_status_label.setStyleSheet(f"color: {Palette.TEXT_SECONDARY};")
+                self.prompt_conflict_label.setVisible(False)
+                self.prompt_conflict_label.setText("")
                 self.manage_refs_btn.setEnabled(False)
                 self.open_inspector_btn.setEnabled(False)
                 self.selected_ref_label.setText("当前选中参考音频：<无>")
@@ -1486,6 +1545,16 @@ class VoiceSettingsInterface(QWidget):
             self.main_ref_status_label.setText("主参考：未绑定")
             self.main_ref_status_label.setToolTip("")
             self.main_ref_status_label.setStyleSheet(f"color: {Palette.TEXT_SECONDARY};")
+
+        has_conflict, conflict_text = self._resolve_prompt_text_conflict(row if isinstance(row, dict) else {})
+        if has_conflict:
+            self.prompt_conflict_label.setText(conflict_text)
+            self.prompt_conflict_label.setToolTip(conflict_text)
+            self.prompt_conflict_label.setVisible(True)
+        else:
+            self.prompt_conflict_label.setText("")
+            self.prompt_conflict_label.setToolTip("")
+            self.prompt_conflict_label.setVisible(False)
 
         if self.refs_sheet.isVisible():
             voice_name = str(self.voice_configs[idx].name if 0 <= idx < len(self.voice_configs) else "")
@@ -1545,7 +1614,7 @@ class VoiceSettingsInterface(QWidget):
         self.selected_ref_label.setText(label)
         self.selected_ref_label.setToolTip(label)
 
-        new_text = note or str(asset.get("prompt_text") or "").strip()
+        new_text = get_asset_transcript_text(asset).strip()
         if not new_text:
             return
         try:
@@ -1588,6 +1657,7 @@ class VoiceSettingsInterface(QWidget):
     
 
     def update_table(self):
+        self._asset_meta_cache = {}
         selected_source_idx = self._current_row_index()
         visible = self._ordered_source_indexes_for_view()
         self._visible_source_indexes = list(visible)
@@ -1652,18 +1722,12 @@ class VoiceSettingsInterface(QWidget):
             self.table.setCellWidget(i, 1, mode_combo)
             
             # 参考文本（两行可读）
-            self.table.setCellWidget(i, 2, self._render_prompt_text_cell(source_idx, config.prompt_text))
+            row = self._v2_rows[source_idx] if 0 <= source_idx < len(self._v2_rows) and isinstance(self._v2_rows[source_idx], dict) else {}
+            ref_text, _aid = self._resolve_transcript_text_from_row(row)
+            display_prompt_text = ref_text or config.prompt_text
+            self.table.setCellWidget(i, 2, self._render_prompt_text_cell(source_idx, display_prompt_text))
             # 主参考（状态化 + 文件名 + 打开目录）
             self.table.setCellWidget(i, 3, self._render_main_ref_cell(source_idx))
-            
-            # 指令文本
-            instruct_edit = LineEdit()
-            instruct_edit.setText(config.instruct_text)
-            instruct_edit.setReadOnly(not self.is_edit_mode)
-            instruct_edit.setFixedHeight(Metrics.CONTROL_H)
-            instruct_edit.textChanged.connect(lambda text, idx=source_idx: self.update_config_instruct_text(idx, text))
-            self.setup_widget_context_menu(instruct_edit, source_idx)
-            self.table.setCellWidget(i, 4, instruct_edit)
             
             # 颜色
             color_widget = QWidget()
@@ -1690,7 +1754,7 @@ class VoiceSettingsInterface(QWidget):
             self.setup_widget_context_menu(color_button, source_idx)
             
             color_layout.addWidget(color_button)
-            self.table.setCellWidget(i, 5, color_widget)
+            self.table.setCellWidget(i, 4, color_widget)
 
         self._refresh_character_filter_items()
         if selected_source_idx >= 0 and selected_source_idx in self._visible_source_indexes:
@@ -2170,6 +2234,7 @@ class VoiceSettingsInterface(QWidget):
             "emotion": emotion,
             "language": row.get("language") or "zh",
             "note": row.get("note") or "",
+            "transcript_text": (self.voice_configs[index].prompt_text or row.get("prompt_text") or "").strip(),
             "linked": 1,
         }
         store.upsert(meta)

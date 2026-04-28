@@ -103,6 +103,7 @@ class VoiceSetupWizardDialog(QDialog):
         self._tmp_dir = os.path.abspath("./data/ui_tmp")
         os.makedirs(self._tmp_dir, exist_ok=True)
         self.media_player = QMediaPlayer()
+        self._sync_prompt_text_guard = False
 
         self.state = _State(character=(preset_character or "").strip(), emotion=(preset_emotion or "default").strip() or "default")
         self.state.test_text = "你好，我是一个新角色。现在我们来做一次合成测试。"
@@ -454,6 +455,12 @@ class VoiceSetupWizardDialog(QDialog):
         row2.addWidget(self.edit_note, 1)
         layout.addLayout(row2)
 
+        layout.addWidget(BodyLabel("参考文本（必填）", self))
+        self.upload_prompt_text = PlainTextEdit(self)
+        self.upload_prompt_text.setPlaceholderText("请填写与参考音频一致的文本；该文本会同步到第 4 步")
+        self.upload_prompt_text.setFixedHeight(140)
+        layout.addWidget(self.upload_prompt_text)
+
         self.label_asset = BodyLabel("asset_id：<未上传>", self)
         self.label_asset.setStyleSheet(f"color: {Palette.TEXT_MUTED};")
         layout.addWidget(self.label_asset)
@@ -581,10 +588,12 @@ class VoiceSetupWizardDialog(QDialog):
         self.btn_pick_file.clicked.connect(self._pick_file)
         self.btn_upload.clicked.connect(self._upload)
         self.btn_play.clicked.connect(self._play_uploaded)
+        self.upload_prompt_text.textChanged.connect(self._on_prompt_text_changed_upload)
 
         # Step4
         self.btn_save_voice.clicked.connect(self._save_voice)
         self.combo_policy.currentTextChanged.connect(self._on_policy_changed)
+        self.prompt_text.textChanged.connect(self._on_prompt_text_changed_save)
 
         # Step5
         self.btn_compile.clicked.connect(self._compile)
@@ -598,11 +607,37 @@ class VoiceSetupWizardDialog(QDialog):
         self.combo_mode.setCurrentText(self.state.mode)
         self.edit_note.setText(self.state.note)
         self.label_asset.setText(f"asset_id：{self.state.asset_id or '<未上传>'}")
-        self.prompt_text.setPlainText(self.state.prompt_text)
+        self._sync_prompt_text_guard = True
+        try:
+            self.upload_prompt_text.setPlainText(self.state.prompt_text)
+            self.prompt_text.setPlainText(self.state.prompt_text)
+        finally:
+            self._sync_prompt_text_guard = False
         self.instruct_text.setPlainText(self.state.instruct_text)
         self.combo_policy.setCurrentText(self._policy_key_to_label.get(self.state.selection_policy, "按文本随机（稳定）"))
         self.test_text.setPlainText(self.state.test_text)
         self._update_voice_id_label()
+
+    def _set_shared_prompt_text(self, text: str, source: str):
+        if self._sync_prompt_text_guard:
+            return
+        self.state.prompt_text = text or ""
+        self._sync_prompt_text_guard = True
+        try:
+            if source != "upload":
+                if (self.upload_prompt_text.toPlainText() or "") != self.state.prompt_text:
+                    self.upload_prompt_text.setPlainText(self.state.prompt_text)
+            if source != "save":
+                if (self.prompt_text.toPlainText() or "") != self.state.prompt_text:
+                    self.prompt_text.setPlainText(self.state.prompt_text)
+        finally:
+            self._sync_prompt_text_guard = False
+
+    def _on_prompt_text_changed_upload(self):
+        self._set_shared_prompt_text(self.upload_prompt_text.toPlainText(), source="upload")
+
+    def _on_prompt_text_changed_save(self):
+        self._set_shared_prompt_text(self.prompt_text.toPlainText(), source="save")
 
     def _update_voice_id_label(self):
         vid = self.state.voice_id()
@@ -711,14 +746,26 @@ class VoiceSetupWizardDialog(QDialog):
         emo = (self.state.emotion or "default").strip() or "default"
         lang = (self.state.language or "zh").strip() or "zh"
         note = (self.edit_note.text() or "").strip()
+        transcript_text = (self.upload_prompt_text.toPlainText() or "").strip()
+        if not transcript_text:
+            self._toast_err("提示", "参考文本为必填，上传前请先填写")
+            return
         self.state.note = note
+        self.state.prompt_text = transcript_text
         if not self._begin_button_busy(self.btn_upload, "上传中..."):
             return
         self.btn_pick_file.setEnabled(False)
 
         def _do():
             cli = self._client_factory()
-            return cli.upload_asset(file_path=fp, character=ch, emotion=emo, language=lang, note=note)
+            return cli.upload_asset(
+                file_path=fp,
+                character=ch,
+                emotion=emo,
+                language=lang,
+                note=note,
+                transcript_text=transcript_text,
+            )
 
         def _ok(meta: dict):
             aid = str((meta or {}).get("asset_id") or "").strip()

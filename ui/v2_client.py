@@ -198,10 +198,25 @@ class V2Client:
         items = payload.get("items") or []
         return items if isinstance(items, list) else []
 
-    def upload_asset(self, *, file_path: str, character: str, emotion: str, language: str, note: str = "") -> dict:
+    def upload_asset(
+        self,
+        *,
+        file_path: str,
+        character: str,
+        emotion: str,
+        language: str,
+        note: str = "",
+        transcript_text: str = "",
+    ) -> dict:
         with open(file_path, "rb") as f:
             files = {"file": (os.path.basename(file_path), f.read())}
-        data = {"character": character, "emotion": emotion, "language": language, "note": note}
+        data = {
+            "character": character,
+            "emotion": emotion,
+            "language": language,
+            "note": note,
+            "transcript_text": transcript_text,
+        }
         url = self.cfg.base_url.rstrip("/") + "/api/v2/assets/audio"
         resp = self._session.post(url, files=files, data=data, headers=self._headers(), timeout=max(float(self.cfg.timeout_s), 60.0))
         _raise_for_status(resp)

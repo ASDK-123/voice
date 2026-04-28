@@ -2,10 +2,15 @@ from __future__ import annotations
 
 import os
 import time
+import uuid
+import shutil
+import threading
 import mimetypes
+import tempfile
 from typing import Any
 
-from flask import Blueprint, Response, request
+from flask import Blueprint, Response, request, send_from_directory
+from core.v2.asset_texts import resolve_prompt_text_voice_first
 
 
 def create_v2_blueprint(ctx) -> Blueprint:
@@ -86,6 +91,55 @@ def create_v2_blueprint(ctx) -> Blueprint:
 
         return by_aid, by_path
 
+    def _first_nonempty(items: object) -> str:
+        if not isinstance(items, list):
+            return ""
+        for x in items:
+            s = str(x or "").strip()
+            if s:
+                return s
+        return ""
+
+    def _primary_asset_id_for_voice(voice: dict[str, Any]) -> str:
+        if not isinstance(voice, dict):
+            return ""
+        aid = _first_nonempty(voice.get("ref_asset_ids"))
+        if aid:
+            return aid
+        return str(voice.get("prompt_audio_asset_id") or "").strip()
+
+    def _sync_primary_asset_transcript(voice: dict[str, Any]) -> dict[str, Any]:
+        """
+        Mirror voice.prompt_text to primary asset transcript with shared-asset protection.
+        """
+        aid = _primary_asset_id_for_voice(voice)
+        if not aid:
+            return {"status": "skipped_no_asset", "asset_id": ""}
+
+        prompt_text = str((voice or {}).get("prompt_text") or "").strip()
+        if not prompt_text:
+            return {"status": "skipped_empty_prompt", "asset_id": aid}
+
+        try:
+            voices = _iter_voices()
+            by_aid, _ = _build_asset_refs(voices)
+            ref_count = len(set(by_aid.get(aid) or set()))
+            if ref_count > 1:
+                return {"status": "skipped_shared", "asset_id": aid, "ref_count": ref_count}
+
+            with ctx.V2_LOCK:
+                meta = ctx.V2_ASSETS.get(aid)
+                if not meta:
+                    return {"status": "skipped_no_asset", "asset_id": aid}
+                updated = dict(meta)
+                updated["transcript_text"] = prompt_text
+                # Keep legacy compatibility field in sync.
+                updated["prompt_text"] = prompt_text
+                ctx.V2_ASSETS.upsert(updated)
+            return {"status": "applied", "asset_id": aid, "ref_count": ref_count}
+        except Exception as e:
+            return {"status": "skipped_error", "asset_id": aid, "reason": str(e)}
+
     @bp.route("/assets/audio", methods=["GET"])
     @require
     def list_audio_assets():
@@ -138,6 +192,7 @@ def create_v2_blueprint(ctx) -> Blueprint:
             emotion = (request.form.get("emotion") or "").strip() or "default"
             language = (request.form.get("language") or "").strip() or "zh"
             note = (request.form.get("note") or "").strip()
+            transcript_text = (request.form.get("transcript_text") or "").strip()
 
             meta = ctx.v2_save_audio_bytes(data, source_name=file_obj.filename or "upload.wav", kind="ref")
             if character:
@@ -148,6 +203,8 @@ def create_v2_blueprint(ctx) -> Blueprint:
                 meta["language"] = language
             if note:
                 meta["note"] = note
+            if transcript_text:
+                meta["transcript_text"] = transcript_text
             with ctx.V2_LOCK:
                 ctx.V2_ASSETS.upsert(meta)
             ctx.log_event(
@@ -178,7 +235,7 @@ def create_v2_blueprint(ctx) -> Blueprint:
         """
         Update v2 audio asset metadata (not content).
 
-        Supported fields: note, prompt_text, character, emotion, language, linked.
+        Supported fields: note, transcript_text, prompt_text(legacy), character, emotion, language, linked.
         Extra keys are preserved in meta_json for forward compatibility.
         """
         try:
@@ -191,6 +248,8 @@ def create_v2_blueprint(ctx) -> Blueprint:
                 updated = dict(meta)
                 if "note" in data:
                     updated["note"] = str(data.get("note") or "").strip()
+                if "transcript_text" in data:
+                    updated["transcript_text"] = str(data.get("transcript_text") or "").strip()
                 if "prompt_text" in data:
                     updated["prompt_text"] = str(data.get("prompt_text") or "").strip()
                 if "character" in data:
@@ -454,6 +513,76 @@ def create_v2_blueprint(ctx) -> Blueprint:
         except Exception as e:
             return json_error(e)
 
+    @bp.route("/voices/import-legacy", methods=["POST"])
+    @require
+    def import_legacy_voices():
+        temp_dir = tempfile.mkdtemp(prefix="voices_import_legacy_")
+        temp_path = ""
+        try:
+            cc = ctx.get_character_config()
+            voices_path = str(getattr(ctx, "v2_voices_config_path", "") or getattr(cc, "config_file", "")).strip()
+            assets_db_path = str(getattr(ctx, "v2_assets_db_path", "") or getattr(getattr(ctx, "V2_ASSETS", None), "db_path", "")).strip()
+            assets_dir = str(getattr(ctx, "v2_assets_dir", "") or "").strip()
+            if not voices_path or not assets_db_path or not assets_dir:
+                return json_error(AppError(code="internal_error", message="v2 import paths not configured", status=500))
+
+            file_obj = request.files.get("file")
+            if not file_obj:
+                return json_error(AppError(code="invalid_request", message="file is required", status=400))
+            if not file_obj.filename:
+                return json_error(AppError(code="invalid_request", message="invalid file upload", status=400))
+
+            temp_path = os.path.join(temp_dir, os.path.basename(file_obj.filename) or "legacy_voices.json")
+            file_obj.save(temp_path)
+            if not os.path.exists(temp_path) or os.path.getsize(temp_path) <= 0:
+                return json_error(AppError(code="invalid_request", message="empty file", status=400))
+
+            dry_run = (request.form.get("dry_run") or "").strip().lower() in {"1", "true", "yes", "on"}
+            default_language = (request.form.get("default_language") or "").strip() or "zh"
+            create_emotion = (request.form.get("create_emotion") or "").strip() or "default"
+            selection_policy = (request.form.get("selection_policy") or "").strip() or "random_per_text"
+
+            from core.v2.legacy_import import import_legacy_voice_config_to_v2
+
+            result = import_legacy_voice_config_to_v2(
+                legacy_config_path=temp_path,
+                v2_voices_config_path=voices_path,
+                v2_assets_db_path=assets_db_path,
+                v2_assets_dir=assets_dir,
+                default_language=default_language,
+                create_emotion=create_emotion,
+                selection_policy=selection_policy,
+                dry_run=dry_run,
+            )
+
+            if not dry_run and cc and hasattr(cc, "load_characters"):
+                cc.load_characters()
+
+            ctx.log_event(
+                ctx.api_logger,
+                request_id=ctx.req_id(),
+                event="voice_import_legacy",
+                dry_run=dry_run,
+                imported_voices=result.get("imported_voices"),
+                imported_assets=result.get("imported_assets"),
+                skipped_assets=result.get("skipped_assets"),
+                errors=len(result.get("errors") or []),
+            )
+            return json_ok(
+                {
+                    "imported_voices": int(result.get("imported_voices") or 0),
+                    "imported_assets": int(result.get("imported_assets") or 0),
+                    "skipped_assets": int(result.get("skipped_assets") or 0),
+                    "errors": list(result.get("errors") or []),
+                    "dry_run": bool(result.get("dry_run")),
+                },
+                status=200,
+            )
+        except Exception as e:
+            return json_error(e)
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
     @bp.route("/voices", methods=["POST"])
     @require
     def create_voice():
@@ -499,8 +628,23 @@ def create_v2_blueprint(ctx) -> Blueprint:
 
             cc.upsert_character(voice)
             cc.save()
-            ctx.log_event(ctx.api_logger, request_id=ctx.req_id(), event="voice_create", voice_id=name, character=voice.get("character"), emotion=voice.get("emotion"))
-            return json_ok(voice, status=201)
+            saved_voice = cc.get_character(name) if cc else None
+            if not isinstance(saved_voice, dict):
+                saved_voice = dict(voice)
+            asset_sync = _sync_primary_asset_transcript(saved_voice)
+            ctx.log_event(
+                ctx.api_logger,
+                request_id=ctx.req_id(),
+                event="voice_create",
+                voice_id=name,
+                character=saved_voice.get("character"),
+                emotion=saved_voice.get("emotion"),
+                asset_sync_status=asset_sync.get("status"),
+                asset_sync_asset_id=asset_sync.get("asset_id"),
+            )
+            payload = dict(saved_voice)
+            payload["asset_transcript_sync"] = asset_sync
+            return json_ok(payload, status=201)
         except Exception as e:
             return json_error(e)
 
@@ -552,8 +696,21 @@ def create_v2_blueprint(ctx) -> Blueprint:
 
             cc.upsert_character(updated)
             cc.save()
-            ctx.log_event(ctx.api_logger, request_id=ctx.req_id(), event="voice_update", voice_id=updated.get("name"))
-            return json_ok(updated, status=200)
+            saved_voice = cc.get_character(new_name) if cc else None
+            if not isinstance(saved_voice, dict):
+                saved_voice = dict(updated)
+            asset_sync = _sync_primary_asset_transcript(saved_voice)
+            ctx.log_event(
+                ctx.api_logger,
+                request_id=ctx.req_id(),
+                event="voice_update",
+                voice_id=saved_voice.get("name"),
+                asset_sync_status=asset_sync.get("status"),
+                asset_sync_asset_id=asset_sync.get("asset_id"),
+            )
+            payload = dict(saved_voice)
+            payload["asset_transcript_sync"] = asset_sync
+            return json_ok(payload, status=200)
         except Exception as e:
             return json_error(e)
 
@@ -594,10 +751,16 @@ def create_v2_blueprint(ctx) -> Blueprint:
                 if not aid:
                     return prompt_text
                 meta = ctx.v2_get_asset(aid)
-                if not meta:
-                    return prompt_text
-                pt = (meta.get("prompt_text") or meta.get("note") or "").strip()
-                return pt or prompt_text
+                resolved, src = resolve_prompt_text_voice_first(prompt_text, meta)
+                if src == "asset.prompt_text":
+                    try:
+                        ctx.api_logger.warning(f"[v2] compile using legacy asset.prompt_text: voice={voice_id} asset={aid}")
+                    except Exception:
+                        pass
+                pt = resolved or prompt_text
+                if pt and is_v3 and "<|endofprompt|>" not in pt:
+                    pt = ctx.cv3_prefix_prompt(pt)
+                return pt
 
             def _compile_one(spk_id: str, audio_path: str, use_prompt_text: str):
                 if not audio_path or not os.path.exists(audio_path):
@@ -709,6 +872,307 @@ def create_v2_blueprint(ctx) -> Blueprint:
                 merged_meta = ctx.v2_save_audio_bytes(f.read(), source_name=os.path.basename(merged_path), kind="merged")
             ctx.log_event(ctx.api_logger, request_id=ctx.req_id(), event="merge", merged_asset_id=merged_meta.get("asset_id"), count=len(file_paths))
             return json_ok({"status": "ok", "asset_id": merged_meta["asset_id"], "path": merged_meta["path"]}, status=200)
+        except Exception as e:
+            return json_error(e)
+
+    # ==================== Pro 模式：批量合成 API ====================
+
+    # 内存级批次状态管理器（进程内共享）
+    _PRO_BATCHES: dict[str, dict[str, Any]] = {}
+    _PRO_BATCHES_LOCK = threading.Lock()
+
+    def _pro_batch_worker(batch_id: str, items: list[dict], output_dir: str) -> None:
+        """后台线程：逐条串行合成，更新批次状态。"""
+        for item in items:
+            # 检查是否已取消
+            with _PRO_BATCHES_LOCK:
+                batch = _PRO_BATCHES.get(batch_id)
+                if not batch or batch.get("cancel_flag"):
+                    break
+
+            row_id = item.get("row_id", "")
+            text = item.get("text", "")
+            voice_id = item.get("voice_id", "")
+            speed = float(item.get("speed", 1.0))
+            mode = str(item.get("mode", "zero_shot") or "zero_shot")
+            instruct_text = str(item.get("instruct_text", "") or "")
+            variation_seed = int(item.get("variation_seed", item.get("seed", 42)) or 42)
+
+            # 标记当前条目为处理中
+            with _PRO_BATCHES_LOCK:
+                batch = _PRO_BATCHES.get(batch_id)
+                if batch and row_id in batch["items"]:
+                    batch["items"][row_id]["status"] = "processing"
+
+            try:
+                # 构建合成请求（复用现有合成引擎）
+                req = {
+                    "text": str(text or ""),
+                    "voice_id": str(voice_id or ""),
+                    "speed": speed,
+                    "mode": mode,
+                    "instruct_text": instruct_text,
+                    "variation_seed": variation_seed,
+                    "response_format": "audio",
+                }
+
+                # 调用合成引擎（串行调用，线程安全）
+                result = ctx.v2_run_engine(
+                    req,
+                    part_index=0,
+                    sync_wait_ms=120_000,
+                    wait_inflight_on_conflict=True,
+                )
+
+                # 保存 wav 文件
+                wav_path = os.path.join(output_dir, f"{row_id}.wav")
+                with open(wav_path, "wb") as f:
+                    f.write(result.wav_bytes)
+
+                # 计算音频时长（毫秒）
+                duration_ms = 0
+                try:
+                    wav_size = len(result.wav_bytes)
+                    # WAV 头部 44 字节，22050Hz, 16bit, mono → 每毫秒 44.1 字节
+                    if wav_size > 44:
+                        duration_ms = int((wav_size - 44) / 44.1)
+                except Exception:
+                    pass
+
+                # 更新条目状态
+                with _PRO_BATCHES_LOCK:
+                    batch = _PRO_BATCHES.get(batch_id)
+                    if batch and row_id in batch["items"]:
+                        batch["items"][row_id].update({
+                            "status": "done",
+                            "audio_path": wav_path,
+                            "duration_ms": duration_ms,
+                            "error": None,
+                        })
+                        batch["completed"] = batch.get("completed", 0) + 1
+
+            except Exception as e:
+                with _PRO_BATCHES_LOCK:
+                    batch = _PRO_BATCHES.get(batch_id)
+                    if batch and row_id in batch["items"]:
+                        batch["items"][row_id].update({
+                            "status": "failed",
+                            "audio_path": None,
+                            "duration_ms": None,
+                            "error": str(e)[:200],
+                        })
+                        batch["failed"] = batch.get("failed", 0) + 1
+
+        # 批次完成，更新总体状态
+        with _PRO_BATCHES_LOCK:
+            batch = _PRO_BATCHES.get(batch_id)
+            if batch:
+                if batch.get("cancel_flag"):
+                    batch["status"] = "cancelled"
+                else:
+                    batch["status"] = "done"
+
+    @bp.route("/pro/batch", methods=["POST"])
+    @require
+    def pro_batch_create():
+        """提交批量合成任务，立即返回 batch_id（HTTP 202）。"""
+        try:
+            payload: dict[str, Any] = request.get_json() or {}
+            items = payload.get("items", [])
+            if not isinstance(items, list) or not items:
+                return json_error(AppError(
+                    code="invalid_request",
+                    message="items 数组不能为空",
+                    status=400,
+                ))
+
+            # 生成批次 ID 和输出目录
+            batch_id = "batch_" + uuid.uuid4().hex[:12]
+            output_dir = os.path.join(
+                os.path.abspath(os.path.join(os.path.dirname(__file__), "..")),
+                "output", "pro_batch", batch_id,
+            )
+            os.makedirs(output_dir, exist_ok=True)
+
+            # 初始化批次状态
+            batch_items: dict[str, dict] = {}
+            for item in items:
+                row_id = str(item.get("row_id", "")).strip()
+                if not row_id:
+                    row_id = "row_" + uuid.uuid4().hex[:8]
+                batch_items[row_id] = {
+                    "status": "pending",
+                    "audio_path": None,
+                    "duration_ms": None,
+                    "error": None,
+                }
+
+            with _PRO_BATCHES_LOCK:
+                _PRO_BATCHES[batch_id] = {
+                    "batch_id": batch_id,
+                    "total": len(items),
+                    "completed": 0,
+                    "failed": 0,
+                    "status": "processing",
+                    "items": batch_items,
+                    "output_dir": output_dir,
+                    "cancel_flag": False,
+                }
+
+            # 规范化 items 列表（确保 row_id 对齐）
+            normalized_items = []
+            for item, row_id in zip(items, batch_items.keys()):
+                ni = dict(item)
+                ni["row_id"] = row_id
+                normalized_items.append(ni)
+
+            # 启动后台线程
+            t = threading.Thread(
+                target=_pro_batch_worker,
+                args=(batch_id, normalized_items, output_dir),
+                daemon=True,
+                name=f"pro_batch_{batch_id}",
+            )
+            t.start()
+
+            ctx.log_event(
+                ctx.api_logger,
+                request_id=ctx.req_id(),
+                event="pro_batch_create",
+                batch_id=batch_id,
+                total=len(items),
+            )
+
+            return json_ok(
+                {"batch_id": batch_id, "total": len(items), "status": "processing"},
+                status=202,
+            )
+        except Exception as e:
+            return json_error(e)
+
+    @bp.route("/pro/batch/<batch_id>", methods=["GET"])
+    @require
+    def pro_batch_status(batch_id: str):
+        """查询批量合成任务状态。"""
+        try:
+            with _PRO_BATCHES_LOCK:
+                batch = _PRO_BATCHES.get(batch_id)
+            if not batch:
+                return json_error(AppError(
+                    code="batch_not_found",
+                    message="批次不存在",
+                    status=404,
+                ))
+
+            # 构建前端需要的 items 数组
+            items_list = []
+            for row_id, info in batch["items"].items():
+                audio_url = None
+                if info.get("status") == "done":
+                    audio_url = f"/api/v2/pro/batch/{batch_id}/audio/{row_id}"
+                items_list.append({
+                    "row_id": row_id,
+                    "status": info.get("status", "pending"),
+                    "audio_url": audio_url,
+                    "duration_ms": info.get("duration_ms"),
+                    "error": info.get("error"),
+                })
+
+            return json_ok({
+                "batch_id": batch_id,
+                "total": batch.get("total", 0),
+                "completed": batch.get("completed", 0),
+                "failed": batch.get("failed", 0),
+                "status": batch.get("status", "unknown"),
+                "items": items_list,
+            }, status=200)
+        except Exception as e:
+            return json_error(e)
+
+    @bp.route("/pro/batch/<batch_id>/audio/<row_id>", methods=["GET"])
+    @require
+    def pro_batch_audio(batch_id: str, row_id: str):
+        """获取批量合成中单条的音频二进制流。"""
+        try:
+            with _PRO_BATCHES_LOCK:
+                batch = _PRO_BATCHES.get(batch_id)
+            if not batch:
+                return json_error(AppError(
+                    code="batch_not_found",
+                    message="批次不存在",
+                    status=404,
+                ))
+
+            item = batch["items"].get(row_id)
+            if not item:
+                return json_error(AppError(
+                    code="row_not_found",
+                    message="该行条目不存在",
+                    status=404,
+                ))
+
+            if item.get("status") != "done" or not item.get("audio_path"):
+                return json_error(AppError(
+                    code="audio_not_ready",
+                    message="音频尚未生成完成",
+                    status=425,
+                ))
+
+            audio_path = item["audio_path"]
+            if not os.path.exists(audio_path):
+                return json_error(AppError(
+                    code="audio_file_missing",
+                    message="音频文件丢失",
+                    status=500,
+                ))
+
+            return send_from_directory(
+                os.path.dirname(audio_path),
+                os.path.basename(audio_path),
+                mimetype="audio/wav",
+            )
+        except Exception as e:
+            return json_error(e)
+
+    @bp.route("/pro/batch/<batch_id>", methods=["DELETE"])
+    @require
+    def pro_batch_cancel(batch_id: str):
+        """取消批量合成任务并清理临时文件。"""
+        try:
+            with _PRO_BATCHES_LOCK:
+                batch = _PRO_BATCHES.get(batch_id)
+                if not batch:
+                    return json_error(AppError(
+                        code="batch_not_found",
+                        message="批次不存在",
+                        status=404,
+                    ))
+                batch["cancel_flag"] = True
+                batch["status"] = "cancelling"
+                output_dir = batch.get("output_dir", "")
+
+            # 清理输出目录
+            if output_dir and os.path.isdir(output_dir):
+                try:
+                    shutil.rmtree(output_dir, ignore_errors=True)
+                except Exception:
+                    pass
+
+            # 从内存中移除批次记录
+            with _PRO_BATCHES_LOCK:
+                _PRO_BATCHES.pop(batch_id, None)
+
+            ctx.log_event(
+                ctx.api_logger,
+                request_id=ctx.req_id(),
+                event="pro_batch_cancel",
+                batch_id=batch_id,
+            )
+
+            return json_ok(
+                {"status": "cancelled", "batch_id": batch_id},
+                status=200,
+            )
         except Exception as e:
             return json_error(e)
 

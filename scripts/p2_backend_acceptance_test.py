@@ -188,12 +188,19 @@ def main() -> int:
         assert int(by["used1"].get("ref_count") or 0) == 2, by["used1"]
         assert int(by["unused1"].get("ref_count") or 0) == 0, by["unused1"]
 
-        # 2.1) update asset meta (note/prompt_text)
-        r = client.put("/api/v2/assets/audio/unused1", json={"note": "unused_v2", "prompt_text": "prompt_for_unused"})
+        # 2.1) update asset meta (note/transcript_text)
+        r = client.put("/api/v2/assets/audio/unused1", json={"note": "unused_v2", "transcript_text": "prompt_for_unused"})
         assert r.status_code == 200, r.data
         meta = store.get("unused1") or {}
         assert meta.get("note") == "unused_v2", meta
-        assert meta.get("prompt_text") == "prompt_for_unused", meta
+        assert meta.get("transcript_text") == "prompt_for_unused", meta
+
+        # 2.2) note update must not alter transcript_text semantics
+        r = client.put("/api/v2/assets/audio/unused1", json={"note": "unused_v3"})
+        assert r.status_code == 200, r.data
+        meta = store.get("unused1") or {}
+        assert meta.get("note") == "unused_v3", meta
+        assert meta.get("transcript_text") == "prompt_for_unused", meta
 
         # 3) cleanup dry-run: unused1 deletable, used1 skipped
         r = client.post("/api/v2/assets/audio/cleanup", json={"asset_ids": ["unused1", "used1"], "dry_run": True})
